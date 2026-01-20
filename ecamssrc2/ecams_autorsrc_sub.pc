@@ -1,0 +1,2372 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_autorsrc_sub.pc                        │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 형상관리의 자동신규 처리 SUB 프로그램        │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2023. 01. 10                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+typedef struct
+{
+	short len;
+	char  arr[100];
+} vr;
+
+/*---------------------------------------------------------------*/
+/*       Oracle Sql Bind 변수 DEFINE                             */
+/*---------------------------------------------------------------*/
+EXEC SQL BEGIN DECLARE SECTION;
+    EXEC SQL TYPE vr IS VARRAW(100);
+    vr my_vr;
+EXEC SQL END DECLARE SECTION;
+
+
+#define DEBUG 1
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+int 	Process_MCIRsrc			();
+int 	Process_FEPEAIRsrc		();
+int 	Process_SCRRsrc			();
+int 	Process_ParmRsrc		();
+int 	Process_CoreShell		();
+int 	Process_RSARsrc			();
+int 	Check_ErrCheck_eai		();
+int 	Check_ErrCheck_SCR		();
+int 	Process_ResultMake		();
+int 	Process_IBRsrc			();
+int 	Sort_ResultFile			();
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath             [dfDir];
+char	szSaveDsnCD            [dfDsnCD];
+char	szSaveRsrcName      [dfRsrcName];
+char	szPGMName           [dfRsrcName];
+char	szUserID              [dfEditor];
+char	szSysCD                [dfSysCD];
+char    szJobCD                [dfJobCD];
+char    szProgName          [dfRsrcName];
+char	szAutoGB                    [10];
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			형상관리의 자동신규 처리   M A I N                   */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+int 	retval                          ;
+char	szRstFile           [dfFullPath];
+char	szRstCond            [dfRstCode];
+char	gszBinPath               [dfDir];
+int 	nInfo17                         ;
+int 	nInfo18                         ;
+int 	nInfo19                         ;
+int 	nRet                            ;
+CMD_INFO	CmdInfo                     ;
+
+    if ( argc < 4 ) {
+        printf ("\nUsage : %s <시스템코드> <사용자ID> <구분(FEP/EAI/MCI/SCR/PARM/RSA/IB/GIT)> <업무코드> <프로그램명>\n\n", argv[0]);
+        exit (1);
+	}
+
+	sprintf(szPGMName, "%s", argv[0]);
+	sprintf(szSysCD  , "%s", argv[1]);
+	sprintf(szUserID , "%s", argv[2]);
+	sprintf(szAutoGB , "%s", argv[3]);
+	
+	memset(szProgName,0x00,sizeof(szProgName));
+	if (strcmp(szAutoGB,"GIT") == 0) {
+        if (argc != 5 && argc != 6) {
+			printf ("\nUsage : %s <시스템코드> <사용자ID> <구분(FEP/EAI/MCI/SCR/PARM/RSA/IB/GIT)> <업무코드> <프로그램명>\n\n", argv[0]);
+			exit (1);
+        }
+
+		sprintf(szJobCD , "%s", argv[4]);		
+		if (argc == 6) sprintf(szProgName, "%s", argv[5]);
+		
+		NotUseDataTruncate (szProgName   ,	0x20);	
+	}
+	nRet = Right_Char_Check(szPGMName, '/');
+	if (nRet > 0) {
+		sprintf(szPGMName, "%s", right_char(szPGMName, strlen(szPGMName) - nRet));
+	}
+
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE) {
+		exit(1);
+	}
+
+	/*-----------------------------------------------------------*/
+    /*   Set Bin  Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("14", gszBinPath);
+	
+	/*-----------------------------------------------------------*/
+    /*   Bin Directory로 이동                                    */
+    /*-----------------------------------------------------------*/
+	chdir(gszBinPath);
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+
+	sprintf(szRstFile, "%s%s.%s", gszTempPath, szUserID, szAutoGB);
+	remove (szRstFile);
+	
+	/*-----------------------------------------------------------*/
+	/*	차세대 자동신규 여부 조회                                */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  COUNT(*)
+		  INTO  :nInfo17
+		  FROM  CMM0030
+		 WHERE  CM_SYSCD = :szSysCD
+		   AND  SUBSTR(CM_SYSINFO, 17, 1) = '1';
+		   
+	if (sqlca.sqlcode != 0) {
+		nInfo17 = 0;
+	}
+
+	/*-----------------------------------------------------------*/
+	/*	차세대 자동신규 여부 조회                                */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  COUNT(*)
+		  INTO  :nInfo18
+		  FROM  CMM0030
+		 WHERE  CM_SYSCD = :szSysCD
+		   AND  SUBSTR(CM_SYSINFO, 18, 1) = '1';
+		   
+	if (sqlca.sqlcode != 0) {
+		nInfo18 = 0;
+	}
+
+	/*-----------------------------------------------------------*/
+	/*	gitlab 자동신규 여부 조회                                */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  COUNT(*)
+		  INTO  :nInfo19
+		  FROM  CMM0030
+		 WHERE  CM_SYSCD = :szSysCD
+		   AND  SUBSTR(CM_SYSINFO, 19, 1) = '1';
+		   
+	if (sqlca.sqlcode != 0) {
+		nInfo19 = 0;
+	}
+	/*-----------------------------------------------------------*/
+	/*	소켓 명령 변수 초기화                                    */
+	/*-----------------------------------------------------------*/
+	InitCmdInfo(&CmdInfo);
+	sprintf(CmdInfo.szAcptNo, "%-12s", "autorsrc_sub");
+	sprintf(CmdInfo.szLogFile,"%sTransList.%s",gszLogPath,gszLogFile);
+	CmdInfo.nPort = dfeCAMSFepPort;
+
+	/*-----------------------------------------------------------*/
+	/*	신규 대상 목록 작성                                      */
+	/*-----------------------------------------------------------*/
+	if (nInfo17 > 0) {
+		/*-------------------------------------------------------*/
+		/*	FEP 자동신규 대상 목록 작성                          */
+		/*-------------------------------------------------------*/
+		if (strcmp(szAutoGB, "FEP") == 0) {
+			sprintf(gszLogMsg,"%s Process_FEPRsrc  [%s] [%s]", szPGMName, szSysCD, szUserID);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+
+			memset(szSaveDsnCD   , 0x00, sizeof(szSaveDsnCD   ));
+			memset(szSaveRsrcName, 0x00, sizeof(szSaveRsrcName));
+			retval = Process_FEPEAIRsrc("FEP", szSysCD, szUserID, szRstFile, szRstCond, &CmdInfo);
+		}
+
+		/*-------------------------------------------------------*/
+		/*	EAI 자동신규 대상 목록 작성                          */
+		/*-------------------------------------------------------*/
+		else
+		if (strcmp(szAutoGB, "EAI") == 0) {
+			sprintf(gszLogMsg,"%s Process_EAIRsrc  [%s] [%s]", szPGMName, szSysCD, szUserID);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		    
+			memset(szSaveDsnCD   , 0x00, sizeof(szSaveDsnCD   ));
+			memset(szSaveRsrcName, 0x00, sizeof(szSaveRsrcName));
+			retval = Process_FEPEAIRsrc("EAI", szSysCD, szUserID, szRstFile, szRstCond, &CmdInfo);
+		}
+		
+		/*-------------------------------------------------------*/
+		/*	통합단말 자동신규 대상 목록 작성                     */
+		/*-------------------------------------------------------*/
+		else
+		if (strcmp(szAutoGB, "SCR") == 0) {
+			sprintf(gszLogMsg,"%s Process_SCRRsrc  [%s] [%s]", szPGMName, szSysCD, szUserID);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		    
+			memset(szSaveDsnCD   , 0x00, sizeof(szSaveDsnCD   ));
+			memset(szSaveRsrcName, 0x00, sizeof(szSaveRsrcName));
+			retval = Process_SCRRsrc(szSysCD, szUserID, szRstFile, szRstCond, &CmdInfo);
+		}
+		
+		/*-------------------------------------------------------*/
+		/*	파라미터 자동신규 대상 목록 작성                     */
+		/*-------------------------------------------------------*/
+		else
+		if (strcmp(szAutoGB, "PARM") == 0) {
+			sprintf(gszLogMsg,"%s Process_ParmRsrc [%s] [%s]", szPGMName, szSysCD, szUserID);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		    
+			memset(szSaveDsnCD   , 0x00, sizeof(szSaveDsnCD   ));
+			memset(szSaveRsrcName, 0x00, sizeof(szSaveRsrcName));
+			retval = Process_ParmRsrc(szSysCD, szUserID, szRstFile, szRstCond, &CmdInfo);
+		}
+		
+		/*-------------------------------------------------------*/
+		/*	RSA 자동신규 대상 목록 작성                          */
+		/*-------------------------------------------------------*/
+		else
+		if (strcmp(szAutoGB, "RSA") == 0) {
+			sprintf(gszLogMsg,"%s Process_RSARsrc  [%s] [%s]", szPGMName, szSysCD, szUserID);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		    
+			memset(szSaveDsnCD   , 0x00, sizeof(szSaveDsnCD   ));
+			memset(szSaveRsrcName, 0x00, sizeof(szSaveRsrcName));
+			retval = Process_RSARsrc(szSysCD, szUserID, szRstFile, szRstCond, &CmdInfo);
+		}
+			
+		/*-------------------------------------------------------*/
+		/*	MCI 자동신규 대상 목록 작성                          */
+		/*-------------------------------------------------------*/
+		else
+		if (strcmp(szAutoGB, "MCI") == 0) {
+			sprintf(gszLogMsg,"%s Process_MCIRsrc  [%s] [%s]", szPGMName, szSysCD, szUserID);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		    
+			memset(szSaveDsnCD   , 0x00, sizeof(szSaveDsnCD   ));
+			memset(szSaveRsrcName, 0x00, sizeof(szSaveRsrcName));
+			retval = Process_MCIRsrc(szSysCD, szUserID, szRstFile, szRstCond, &CmdInfo);
+		}
+		
+		else {
+			sprintf(gszLogMsg,"%s Process_MCIRsrc  [%s] [%s]", szPGMName, szSysCD, szUserID);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		    
+			exit (1);
+		}
+	}
+	
+	else
+	if (nInfo18 > 0) {
+		/*-------------------------------------------------------*/
+		/*	인터넷뱅킹 자동신규 대상 목록 작성                   */
+		/*-------------------------------------------------------*/
+		if (strcmp(szAutoGB, "IB") == 0) {
+			sprintf(gszLogMsg,"%s Process_IBRsrc  [%s] [%s]", szPGMName, szSysCD, szUserID);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		    
+			memset(szSaveDsnCD   , 0x00, sizeof(szSaveDsnCD   ));
+			memset(szSaveRsrcName, 0x00, sizeof(szSaveRsrcName));
+			retval = Process_IBRsrc(szSysCD, szUserID, szRstFile, szRstCond, &CmdInfo);
+		}	
+		
+		else {
+			exit (1);
+		}
+	}
+	else
+	if (nInfo19 > 0) {
+		/*-------------------------------------------------------*/
+		/*	gitlab 자동신규 대상 목록 작성                                */
+		/*-------------------------------------------------------*/
+		if (strcmp(szAutoGB, "GIT") == 0) {
+			sprintf(gszLogMsg,"%s Process_GITRsrc  [%s] [%s] [%s] [%s]", szPGMName, szSysCD, szJobCD, szUserID, szProgName);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		    
+			memset(szSaveDsnCD   , 0x00, sizeof(szSaveDsnCD   ));
+			memset(szSaveRsrcName, 0x00, sizeof(szSaveRsrcName));
+			retval = Process_GITRsrc(szSysCD, szJobCD, szUserID, szProgName, szRstFile, szRstCond, &CmdInfo);
+		}	
+		
+		else {
+			exit (1);
+		}
+	}
+
+	else {
+		exit (1);
+	}
+			
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit(0);
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_MCIRsrc                                  */
+/*	Action    : MCI 신규대상 자원목록 작성                       */
+/*  Parameter : pSysCD   : 시스템코드                            */
+/*              pUserID  : 사용자번호                            */
+/*              pRstFile : 결과파일                              */
+/*              pRstCond : 처리결과                              */
+/*              pCmdInfo : SOCKET STRUCTURE                      */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Process_MCIRsrc	( char *pSysCD
+						, char *pUserID
+						, char *pRstFile
+						, char *pRstCond
+						, CMD_INFO	*pCmdInfo
+						)
+{
+char	szSysCmd            [dfFullPath];
+char	szDummy             [dfFullPath];
+char	szDummy1            [dfFullPath];
+char 	*szKeys                     [30];
+char 	*toktmp                         ;
+int 	retval                          ;
+int 	ret                             ;
+int	 	Index_key = 0                   ;
+int 	nCnt                            ;
+char	szJobCD                [dfJobCD];
+char	szEditor              [dfEditor];
+char	szStory                 [1000+1];
+char	szRsrcName          [dfRsrcName];
+char	szDirPath                [dfDir];
+char	szRsrcCDMsg              [100+1];
+char	szLangCDMsg              [100+1];
+char	szRstFile           [dfFullPath];
+char	szBaseDir                [dfDir];
+char	szBaseRsrc          [dfRsrcName];
+char	szDevSvrIP             [dfSvrIP];
+int 	szPortNo                        ;
+FILE	*RstPtr                         ;
+FILE	*SrcPtr                         ;
+
+
+	/*-----------------------------------------------------------*/
+	/*	개발서버 정보 조회                                       */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  A.CM_SVRIP
+		      , A.CM_PORTNO
+		  INTO  :szDevSvrIP
+		  	  , :szPortNo
+		  FROM  CMM0031 A
+		      , CMM0038 B
+		 WHERE  B.CM_SYSCD = :pSysCD
+		   AND  B.CM_RSRCCD IN ('M4','M6','M5','S7','S8','S9')
+		   AND  B.CM_SVRCD = '01'
+		   AND  B.CM_SYSCD = A.CM_SYSCD
+		   AND  B.CM_SVRCD = A.CM_SVRCD
+		   AND  B.CM_SEQNO = A.CM_SEQNO
+		   AND  ROWNUM = 1;
+
+   	if (sqlca.sqlcode != 0)	{
+   		printf("SQL ERROR [%d] [%s]\n", sqlca.sqlcode, pSysCD);
+   		return (1);
+   	}	
+
+   	NotUseDataTruncate(szDevSvrIP, 0x20);
+   	
+   	sprintf(pCmdInfo->szServerIP, "%s", szDevSvrIP);
+	pCmdInfo->nPort	= szPortNo;
+	sprintf(szRstFile, "%s.lst", pRstFile);
+
+	/*-----------------------------------------------------------*/
+	/*	U2L 프로젝트 (2023.01.04) Port 변경                      */
+	/*  BEF:6290/configurationManagerRequest.jsp                 */
+	/*  AFT:8221/iManager/igate/configurationManagerRequest.jsp  */
+	/*-----------------------------------------------------------*/
+	sprintf(szSysCmd, "java Http_Call %s:8221/iManager/igate/resourceListRequest.jsp Id=%s %s", szDevSvrIP, pUserID, szRstFile);
+	retval = system(szSysCmd) / 256;
+
+	sprintf(gszLogMsg,"%s Process_MCIRsrc    목록작성 요청완료 [%s] [%s] [%s]", szPGMName, szSysCD, szUserID, szSysCmd);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+    
+	if (retval != 0)
+		return (retval);
+
+    if ((RstPtr = fopen(szRstFile, "r") ) == (FILE *) NULL) {
+    	return (1);
+    }
+
+    memset(szDummy, 0x00, sizeof(szDummy));
+    while (fgets(szDummy, 256, RstPtr) != (char *) NULL) {
+        sprintf(szDummy, "%s", rep_char(szDummy,"\n",""));
+		sprintf(szDummy, "%s", rep_char(szDummy,"\r",""));
+		sprintf(szDummy, "%s", trunc_char(szDummy));
+
+		if (strlen(szDummy) == 0)	continue;
+
+		ret = Char_Check(szDummy, ":");
+		if (ret < 0) {
+			return (2);
+			break;
+		}
+
+		sprintf(szDummy, "%s", left_char(szDummy, ret));
+		sprintf(szDummy, "%s", trunc_char(szDummy));
+		if (strcmp(szDummy, "0") != 0) {
+			retval = 1;
+		}
+		else {
+			retval = 0;
+		}
+	}
+	fclose (RstPtr);
+	remove (szRstFile);
+
+	if (retval == 0) {
+		sprintf(pCmdInfo->szJobGub, "%s", "G");
+		/*-----------------------------------------------------------*/
+		/*	U2L 프로젝트 (2023.01.04) 디렉토리 변경                  */
+		/*	BEF : /weblogic/imo/ecamsApps/MCIMSG/resourceListFileDir */
+		/*	AFT : /weblogic/mci/ecamsApps/MCIMSG/resourceListFileDir */
+		/*-----------------------------------------------------------*/
+		sprintf(pCmdInfo->szRemote, "/weblogic/mci/ecamsApps/MCIMSG/resourceListFileDir/%s.txt", pUserID);
+		sprintf(pCmdInfo->szLocal , "%s.lst", pRstFile);
+		Server_Cmd_JOB(pCmdInfo);
+		strcpy(pRstCond, pCmdInfo->szRstCond);
+
+		sprintf(pCmdInfo->szJobGub, "%s", "S");
+		sprintf(pCmdInfo->szCommand, "rm -f %s", pCmdInfo->szRemote);
+		Server_Cmd_JOB(pCmdInfo);
+	} 
+	else {
+		sprintf(pRstCond, "%04d", retval);
+	}
+
+	if (strcmp(pRstCond, "0000") != 0)
+		return (3);
+
+	
+	if (Sort_ResultFile(pCmdInfo->szLocal) != 0) {
+		remove (pCmdInfo->szLocal);
+		return (1);
+	}
+
+	sprintf(szRstFile, "%s", pRstFile);
+    if ((SrcPtr = fopen(pCmdInfo->szLocal, "r") ) == (FILE *) NULL) {
+    	return (1);
+    }
+
+    if ((RstPtr = fopen(szRstFile, "w") ) == (FILE *) NULL) {
+    	return (2);
+    }
+
+	retval = 0;
+
+	while (fgets(szDummy, 2048, SrcPtr) != (char *) NULL) {
+        /*-------------------------------------------------------*/
+    	/* Return Valure Truncate                                */
+        /*-------------------------------------------------------*/
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r\n" , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\n"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\t\t" , "\t \t"));
+        sprintf(szDummy, "%s", trunc_char(szDummy));
+        strcpy(szDummy1, szDummy);
+        strcat (szDummy, "\t");
+
+		Index_key = 0;
+		while(1) {
+			if (Index_key == 0)
+				szKeys[Index_key] = strtok_r(szDummy,"\t",&toktmp);
+			else
+				szKeys[Index_key] = strtok_r(NULL,"\t",&toktmp);
+
+			if (szKeys[Index_key] == NULL)		break;
+
+			Index_key++;
+		}
+
+		if (Index_key == 0) {
+			fprintf(stderr,"Index_key == 0\n");
+			return 2;
+		}
+
+		sprintf(szJobCD    , "%s", szKeys[0]);
+		sprintf(szEditor   , "%s", szKeys[1]);
+		sprintf(szStory    , "%s", szKeys[3]);
+		sprintf(szDirPath  , "%s", szKeys[4]);
+		sprintf(szRsrcCDMsg, "%s", szKeys[5]);
+		sprintf(szLangCDMsg, "%s", szKeys[6]);
+		sprintf(szRsrcName , "%s.xml", szKeys[2]);
+
+		sprintf(szJobCD    , "%s", trunc_char(szJobCD    ));
+		sprintf(szEditor   , "%s", trunc_char(szEditor   ));
+		sprintf(szStory    , "%s", trunc_char(szStory    ));
+		sprintf(szDirPath  , "%s", trunc_char(szDirPath  ));
+		sprintf(szRsrcCDMsg, "%s", trunc_char(szRsrcCDMsg));
+		sprintf(szLangCDMsg, "%s", trunc_char(szLangCDMsg));
+		sprintf(szRsrcName , "%s", trunc_char(szRsrcName ));
+
+		memset(szBaseDir , 0x00, sizeof(szBaseDir ));
+		memset(szBaseRsrc, 0x00, sizeof(szBaseRsrc));
+
+		retval = Process_ResultMake	( pSysCD
+									, szJobCD
+									, szEditor
+									, szStory
+									, szDirPath
+									, szRsrcCDMsg
+									, szLangCDMsg
+									, szRsrcName
+									, szBaseDir
+									, szBaseRsrc
+									, RstPtr
+									);
+																
+		if (retval != 0) {
+			sprintf(gszLogMsg,"%s [%s]", szPGMName, szDummy1);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);			
+		}
+	}
+	fclose (SrcPtr);
+    fclose (RstPtr);
+	remove (pCmdInfo->szLocal);
+	return (retval);
+
+}
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_FEPEAIRsrc                               */
+/*	Action    : FEP/EAI 신규대상 자원목록 작성                   */
+/*  Parameter : pCODE    : 작업구분 (FEP/EAI)                    */
+/*              pSysCD   : 시스템코드                            */
+/*              pUserID  : 사용자번호                            */
+/*              pRstFile : 결과파일                              */
+/*              pRstCond : 처리결과                              */
+/*              pCmdInfo : SOCKET STRUCTURE                      */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Process_FEPEAIRsrc	( char *pCODE
+							, char *pSysCD
+							, char *pUserID
+							, char *pRstFile
+							, char *pRstCond
+							, CMD_INFO	*pCmdInfo
+							)
+{
+char	szSysCmd            [dfFullPath];
+char	szDummy             [dfFullPath];
+char	szDummy1            [dfFullPath];
+char 	*szKeys                     [30];
+char 	*toktmp                         ;
+int 	retval                          ;
+int 	ret                             ;
+int	 	Index_key = 0                   ;
+char	szJobCD                [dfJobCD];
+char	szEditor              [dfEditor];
+char	szStory                 [1000+1];
+char	szRsrcName          [dfRsrcName];
+char	szDirPath                [dfDir];
+char	szRsrcCDMsg              [100+1];
+char	szLangCDMsg              [100+1];
+char	szRsrcCD              [dfRsrcCD];
+char	szLangCD              [dfLangCD];
+char	szRstFile           [dfFullPath];
+char	szRstFile1          [dfFullPath];
+char	szDsnCD                [dfDsnCD];
+char	szBaseDir                [dfDir];
+char	szBaseRsrc          [dfRsrcName];
+char	szDevSvrIP             [dfSvrIP];
+int 	szPortNo                        ;
+FILE	*RstPtr                         ;
+FILE	*SrcPtr                         ;
+
+
+	/*-----------------------------------------------------------*/
+	/*	개발서버 정보 조회                                       */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  A.CM_SVRIP
+		      , A.CM_PORTNO
+		  INTO  :szDevSvrIP
+		  	  , :szPortNo
+		  FROM  CMM0031 A
+		      , CMM0038 B
+		 WHERE  B.CM_SYSCD = :pSysCD
+		   AND  B.CM_RSRCCD IN ('E8','E4','E5','E6','S3','S2','S1')
+		   AND  B.CM_SVRCD = '01'
+		   AND  B.CM_SYSCD = A.CM_SYSCD
+		   AND  B.CM_SVRCD = A.CM_SVRCD
+		   AND  B.CM_SEQNO = A.CM_SEQNO
+		   AND  ROWNUM = 1;
+
+   	if (sqlca.sqlcode != 0)		return (1);
+
+   	NotUseDataTruncate(szDevSvrIP, 0x20);
+   	sprintf(pCmdInfo->szServerIP, "%s", szDevSvrIP);
+	pCmdInfo->nPort	= szPortNo;
+	
+	sprintf(szSysCmd, "java Http_Call %s:10221/monitoring/historyList.do 'id=%s&serviceType=%s' %s", szDevSvrIP, pUserID, pCODE, pRstFile);
+	retval = system(szSysCmd);
+
+	sprintf(gszLogMsg,"%s Process_FEPEAIRsrc 목록작성 요청완료 [%s] [%s] [%s]", szPGMName, szSysCD, szUserID, szSysCmd);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+    
+	if (retval != 0)
+		return (retval);
+
+	retval = Check_ErrCheck_eai	(pRstFile, szRstFile1, pRstCond);
+	remove (pRstFile);
+
+	if (retval == 0) {
+		sprintf(pCmdInfo->szJobGub, "%s", "G");
+		sprintf(pCmdInfo->szRemote, "%s", szRstFile1);
+		sprintf(pCmdInfo->szLocal , "%s.lst", pRstFile);
+		Server_Cmd_JOB(pCmdInfo);
+		strcpy(pRstCond, pCmdInfo->szRstCond);
+
+		#if 0
+		sprintf(pCmdInfo->szJobGub, "%s", "S");
+		sprintf(pCmdInfo->szCommand, "rm -f %s", pCmdInfo->szRemote);
+		Server_Cmd_JOB(pCmdInfo);
+		#endif
+	}
+	else {
+		sprintf(pRstCond, "%04d", retval);
+	}
+
+	if (strcmp(pRstCond, "0000") != 0)
+		return (3);
+
+	
+	if (Sort_ResultFile(pCmdInfo->szLocal) != 0) {
+		remove (pCmdInfo->szLocal);
+		return (1);
+	}
+
+	sprintf(szRstFile, "%s", pRstFile);
+    if ((SrcPtr = fopen(pCmdInfo->szLocal, "r") ) == (FILE *) NULL) {
+    	return (1);
+    }
+
+    if ((RstPtr = fopen(szRstFile, "a+") ) == (FILE *) NULL) {
+    	return (2);
+    }
+
+	retval = 0;
+
+	while (fgets(szDummy, 2048, SrcPtr) != (char *) NULL) {
+        /*-------------------------------------------------------*/
+    	/* Return Valure Truncate                                */
+        /*-------------------------------------------------------*/
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r\n" , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\n"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\t\t" , "\t \t"));
+        sprintf(szDummy, "%s", trunc_char(szDummy));
+        strcpy(szDummy1, szDummy);
+        strcat (szDummy, "\t");
+
+		Index_key = 0;
+		while(1) {
+			if (Index_key == 0)
+				szKeys[Index_key] = strtok_r(szDummy,"\t",&toktmp);
+			else
+				szKeys[Index_key] = strtok_r(NULL,"\t",&toktmp);
+
+			if (szKeys[Index_key] == NULL)		break;
+
+			Index_key++;
+		}
+
+		if (Index_key == 0) {
+			fprintf(stderr,"Index_key == 0\n");
+			return 2;
+		}
+
+		sprintf(szJobCD    , "%s", szKeys[0]);
+		sprintf(szEditor   , "%s", szKeys[1]);
+		sprintf(szStory    , "%s", szKeys[3]);
+		sprintf(szDirPath  , "%s", szKeys[4]);
+		sprintf(szRsrcCDMsg, "%s", szKeys[5]);
+		sprintf(szLangCDMsg, "%s", szKeys[6]);
+		sprintf(szRsrcName , "%s", szKeys[2]);
+
+
+		sprintf(szJobCD    , "%s", trunc_char(szJobCD    ));
+		sprintf(szEditor   , "%s", trunc_char(szEditor   ));
+		sprintf(szStory    , "%s", trunc_char(szStory    ));
+		sprintf(szDirPath  , "%s", trunc_char(szDirPath  ));
+
+		sprintf(szRsrcCDMsg, "%s", trunc_char(szRsrcCDMsg));
+		sprintf(szLangCDMsg, "%s", trunc_char(szLangCDMsg));
+		sprintf(szRsrcName , "%s", trunc_char(szRsrcName ));
+
+		memset(szBaseDir , 0x00, sizeof(szBaseDir ));
+		memset(szBaseRsrc, 0x00, sizeof(szBaseRsrc));
+
+		retval = Process_ResultMake	( pSysCD
+									, szJobCD
+									, szEditor
+									, szStory
+									, szDirPath
+									, szRsrcCDMsg
+									, szLangCDMsg
+									, szRsrcName
+									, szBaseDir
+									, szBaseRsrc
+									, RstPtr
+									);
+																
+		if (retval != 0) {
+			sprintf(gszLogMsg,"%s [%s]", szPGMName, szDummy1);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);			
+		}
+	}
+	fclose (SrcPtr);
+    fclose (RstPtr);
+    remove (pCmdInfo->szLocal);
+	return (retval);
+
+}
+
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_SCRRsrc                                  */
+/*	Action    : FEP/EAI 신규대상 자원목록 작성                   */
+/*  Parameter : pSysCD   : 시스템코드                            */
+/*              pUserID  : 사용자번호                            */
+/*              pRstFile : 결과파일                              */
+/*              pRstCond : 처리결과                              */
+/*              pCmdInfo : SOCKET STRUCTURE                      */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Process_SCRRsrc	( char *pSysCD
+						, char *pUserID
+						, char *pRstFile
+						, char *pRstCond
+						, CMD_INFO	*pCmdInfo
+						)
+{
+char	szSysCmd            [dfFullPath];
+char	szDummy             [dfFullPath];
+char	szDummy1            [dfFullPath];
+char 	*szKeys                     [30];
+char 	*toktmp                         ;
+int 	retval                          ;
+int 	ret                             ;
+int	 	Index_key = 0                   ;
+int 	nCnt                            ;
+char	szJobCD                [dfJobCD];
+char	szEditor              [dfEditor];
+char	szStory                 [1000+1];
+char	szRsrcName          [dfRsrcName];
+char	szDirPath                [dfDir];
+char	szRsrcCDMsg              [100+1];
+char	szLangCDMsg              [100+1];
+char	szRsrcCD              [dfRsrcCD];
+char	szLangCD              [dfLangCD];
+char	szRstFile           [dfFullPath];
+char	szRstFile1          [dfFullPath];
+char	szDsnCD                [dfDsnCD];
+char	szBaseDir                [dfDir];
+char	szBaseRsrc          [dfRsrcName];
+char	szDevSvrIP             [dfSvrIP];
+int 	szPortNo                        ;
+FILE	*RstPtr                         ;
+FILE	*SrcPtr                         ;
+
+
+	/*-----------------------------------------------------------*/
+	/*	개발서버 정보 조회                                       */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  A.CM_SVRIP
+		      , A.CM_PORTNO
+		  INTO  :szDevSvrIP
+		  	  , :szPortNo
+		  FROM  CMM0031 A
+		      , CMM0038 B
+		 WHERE  B.CM_SYSCD = :pSysCD
+		   AND  B.CM_RSRCCD IN ('D6','D3','D7','D1','D2','D5','D4','D8','33')
+		   AND  B.CM_SVRCD = '01'
+		   AND  B.CM_SYSCD = A.CM_SYSCD
+		   AND  B.CM_SVRCD = A.CM_SVRCD
+		   AND  B.CM_SEQNO = A.CM_SEQNO
+		   AND  ROWNUM = 1;
+
+   	if (sqlca.sqlcode != 0)		return (1);
+
+   	NotUseDataTruncate(szDevSvrIP, 0x20);
+
+	sprintf(pCmdInfo->szServerIP, "%s", szDevSvrIP);
+	pCmdInfo->nPort	= szPortNo;
+	
+	sprintf(szRstFile, "%s.lst", pRstFile);
+
+	sprintf(szSysCmd, "java Http_Call %s:5290/IWorksResourceList.jsp 'id=%s' %s", szDevSvrIP, pUserID, szRstFile);	
+	retval = system(szSysCmd);
+
+	sprintf(gszLogMsg,"%s Process_SCRRsrc    목록작성 요청완료 [%s] [%s] [%s]", szPGMName, szSysCD, szUserID, szSysCmd);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+
+	if (retval != 0) {
+		remove (szRstFile);
+		return (retval);
+	}
+
+	retval = Check_ErrCheck_SCR	(szRstFile, szRstFile1, pRstCond);
+	remove (pRstFile);
+
+	if (retval == 0) {
+		sprintf(pCmdInfo->szJobGub, "%s", "G");
+		sprintf(pCmdInfo->szRemote, "%s", szRstFile1);
+		sprintf(pCmdInfo->szLocal , "%s", szRstFile);
+		Server_Cmd_JOB(pCmdInfo);
+		strcpy(pRstCond, pCmdInfo->szRstCond);
+
+		sprintf(pCmdInfo->szJobGub, "%s", "S");
+		sprintf(pCmdInfo->szCommand, "rm -f %s", pCmdInfo->szRemote);
+		Server_Cmd_JOB(pCmdInfo);
+	}
+	else {
+		sprintf(pRstCond, "%04d", retval);
+	}
+
+	if (strcmp(pRstCond, "0000") != 0)
+		return (3);
+
+	
+	if (Sort_ResultFile(pCmdInfo->szLocal) != 0) {
+		remove (pCmdInfo->szLocal);
+		return (1);
+	}
+
+	sprintf(szRstFile, "%s", pRstFile);
+    if ((SrcPtr = fopen(pCmdInfo->szLocal, "r") ) == (FILE *) NULL) {
+    	return (1);
+    }
+
+    if ((RstPtr = fopen(szRstFile, "a+") ) == (FILE *) NULL) {
+    	return (2);
+    }
+
+	retval = 0;
+
+	while (fgets(szDummy, 2048, SrcPtr) != (char *) NULL) {
+        /*-------------------------------------------------------*/
+    	/* Return Valure Truncate                                */
+        /*-------------------------------------------------------*/
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r\n" , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\n"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\t\t" , "\t \t"));
+        sprintf(szDummy, "%s", trunc_char(szDummy));
+        strcpy(szDummy1, szDummy);
+        strcat (szDummy, "\t");
+
+		Index_key = 0;
+		while(1) {
+			if (Index_key == 0)
+				szKeys[Index_key] = strtok_r(szDummy,"\t",&toktmp);
+			else
+				szKeys[Index_key] = strtok_r(NULL,"\t",&toktmp);
+
+			if (szKeys[Index_key] == NULL)		break;
+
+			Index_key++;
+		}
+
+		if (Index_key == 0) {
+			fprintf(stderr,"Index_key == 0\n");
+			return 2;
+		}
+
+		sprintf(szJobCD    , "%s", szKeys[0]);
+		sprintf(szEditor   , "%s", szKeys[1]);
+		sprintf(szStory    , "%s", szKeys[3]);
+		sprintf(szDirPath  , "%s", szKeys[4]);
+		sprintf(szRsrcCDMsg, "%s", szKeys[5]);
+		sprintf(szLangCDMsg, "%s", szKeys[6]);
+		sprintf(szRsrcName , "%s", szKeys[2]);
+
+
+		sprintf(szJobCD    , "%s", trunc_char(szJobCD    ));
+		sprintf(szEditor   , "%s", trunc_char(szEditor   ));
+		sprintf(szStory    , "%s", trunc_char(szStory    ));
+		sprintf(szDirPath  , "%s", trunc_char(szDirPath  ));
+		sprintf(szRsrcCDMsg, "%s", trunc_char(szRsrcCDMsg));
+		sprintf(szLangCDMsg, "%s", trunc_char(szLangCDMsg));
+		sprintf(szRsrcName , "%s", trunc_char(szRsrcName ));
+
+		memset(szBaseDir , 0x00, sizeof(szBaseDir ));
+		memset(szBaseRsrc, 0x00, sizeof(szBaseRsrc));
+
+		retval = Process_ResultMake	( pSysCD
+									, szJobCD
+									, szEditor
+									, szStory
+									, szDirPath
+									, szRsrcCDMsg
+									, szLangCDMsg
+									, szRsrcName
+									, szBaseDir
+									, szBaseRsrc
+									, RstPtr
+									);
+																
+		if (retval != 0) {
+			sprintf(gszLogMsg,"%s [%s]", szPGMName, szDummy1);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);			
+		}
+	}
+	fclose (SrcPtr);
+    fclose (RstPtr);
+	remove (pCmdInfo->szLocal);
+	return (retval);
+
+}
+
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_ParmRsrc                                 */
+/*	Action    : 파라미터 신규대상 자원목록 작성                  */
+/*  Parameter : pSysCD   : 시스템코드                            */
+/*              pUserID  : 사용자번호                            */
+/*              pRstFile : 결과파일                              */
+/*              pRstCond : 처리결과                              */
+/*              pCmdInfo : SOCKET STRUCTURE                      */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Process_ParmRsrc	( char *pSysCD
+							, char *pUserID
+							, char *pRstFile
+							, char *pRstCond
+							, CMD_INFO	*pCmdInfo
+							)
+{
+char	szSysCmd            [dfFullPath];
+char	szDummy             [dfFullPath];
+char	szDummy1            [dfFullPath];
+char 	*szKeys                     [30];
+char 	*toktmp                         ;
+int 	retval                          ;
+int 	ret                             ;
+int	 	Index_key = 0                   ;
+int 	nCnt                            ;
+char	szJobCD                [dfJobCD];
+char	szEditor              [dfEditor];
+char	szStory                 [1000+1];
+char	szRsrcName          [dfRsrcName];
+char	szDirPath                [dfDir];
+char	szRsrcCDMsg              [100+1];
+char	szLangCDMsg              [100+1];
+char	szRsrcCD              [dfRsrcCD];
+char	szLangCD              [dfLangCD];
+char	szRstFile           [dfFullPath];
+char	szRstFile1          [dfFullPath];
+char	szDsnCD                [dfDsnCD];
+char	szSvrIP                [dfSvrIP];
+char	szDir                    [dfDir];
+int 	szPortNo                        ;
+char	szBaseDir                [dfDir];
+char	szBaseRsrc          [dfRsrcName];
+FILE	*RstPtr                         ;
+FILE	*SrcPtr                         ;
+
+
+	EXEC SQL
+		SELECT  A.CM_SVRIP
+		      , A.CM_PORTNO
+		      , A.CM_DIR
+		  INTO  :szSvrIP
+		  	  , :szPortNo
+		  	  , :szDir
+		  FROM  CMM0031 A
+		      , CMM0038 B
+		 WHERE  B.CM_SYSCD = :pSysCD
+		   AND  B.CM_RSRCCD BETWEEN 'P1' AND 'P9'
+		   AND  B.CM_SVRCD = '01'
+		   AND  B.CM_SYSCD = A.CM_SYSCD
+		   AND  B.CM_SVRCD = A.CM_SVRCD
+		   AND  B.CM_SEQNO = A.CM_SEQNO
+		   AND  ROWNUM = 1;
+
+   	if (sqlca.sqlcode != 0)		return (1);
+
+   	NotUseDataTruncate(szSvrIP, 0x20);
+   	sprintf(szDir, "%s", trunc_char(szDir));
+
+	strcpy(pCmdInfo->szServerIP, szSvrIP);
+	pCmdInfo->nPort	= szPortNo;
+
+	sprintf(pCmdInfo->szJobGub , "%s", "S");
+	sprintf(pCmdInfo->szCommand, "/cbsapps/shl/paramList.sh %s > %s/%s.txt", pUserID, szDir, pUserID);
+	Server_Cmd_JOB(pCmdInfo);
+	sprintf(pRstCond, "%s", pCmdInfo->szRstCond);
+
+	sprintf(gszLogMsg,"%s Process_ParmRsrc   목록작성 요청완료 [%s] [%s] [%s]", szPGMName, szSysCD, szUserID, pRstCond);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+	
+	if (strcmp(pRstCond, "0000") != 0) {
+		remove (pCmdInfo->szLocal);
+		return (1);
+	}
+
+	sprintf(pCmdInfo->szJobGub, "%s", "G");
+	sprintf(pCmdInfo->szRemote, "%s/%s.txt", szDir, pUserID);
+	sprintf(pCmdInfo->szLocal , "%s.lst", pRstFile);
+	Server_Cmd_JOB(pCmdInfo);
+	sprintf(pRstCond, "%s", pCmdInfo->szRstCond);
+
+	sprintf(gszLogMsg,"%s Process_ParmRsrc   목록수신 완료 [%s] [%s] [%s]", szPGMName, szSysCD, szUserID, pRstCond);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+
+	sprintf(pCmdInfo->szJobGub , "%s", "S");
+	sprintf(pCmdInfo->szCommand, "rm -f %s/%s.txt", szDir, pUserID);
+	Server_Cmd_JOB(pCmdInfo);
+
+	if (strcmp(pRstCond, "0000") != 0) {
+		remove (pCmdInfo->szLocal);
+		return (1);
+	}
+
+	
+	if (Sort_ResultFile(pCmdInfo->szLocal) != 0) {
+		remove (pCmdInfo->szLocal);
+		return (1);
+	}
+
+	sprintf(szRstFile, "%s.lst", pRstFile);
+    if ((SrcPtr = fopen(pCmdInfo->szLocal, "r") ) == (FILE *) NULL) {
+    	return (1);
+    }
+
+    if ((RstPtr = fopen(pRstFile, "a+") ) == (FILE *) NULL) {
+    	return (2);
+    }
+
+	retval = 0;
+
+	while (fgets(szDummy, 2048, SrcPtr) != (char *) NULL) {
+        /*-------------------------------------------------------*/
+    	/* Return Valure Truncate                                */
+        /*-------------------------------------------------------*/
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r\n" , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\n"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\t\t" , "\t \t"));
+        sprintf(szDummy, "%s", trunc_char(szDummy));
+        strcpy(szDummy1, szDummy);
+        strcat (szDummy, "\t");
+
+		Index_key = 0;
+		while(1) {
+			if (Index_key == 0)
+				szKeys[Index_key] = strtok_r(szDummy,"\t",&toktmp);
+			else
+				szKeys[Index_key] = strtok_r(NULL,"\t",&toktmp);
+
+			if (szKeys[Index_key] == NULL)		break;
+
+			Index_key++;
+		}
+
+		if (Index_key == 0) {
+			fprintf(stderr,"Index_key == 0\n");
+			return 2;
+		}
+
+		sprintf(szJobCD    , "%s", szKeys[0]);
+		sprintf(szEditor   , "%s", szKeys[1]);
+		sprintf(szStory    , "%s", szKeys[3]);
+		sprintf(szDirPath  , "%s", szKeys[4]);
+		sprintf(szRsrcCDMsg, "%s", szKeys[5]);
+		sprintf(szLangCDMsg, "%s", szKeys[6]);
+		sprintf(szRsrcName , "%s", szKeys[2]);
+
+		sprintf(szJobCD    , "%s", trunc_char(szJobCD    ));
+		sprintf(szEditor   , "%s", trunc_char(szEditor   ));
+		sprintf(szStory    , "%s", trunc_char(szStory    ));
+		sprintf(szDirPath  , "%s", trunc_char(szDirPath  ));
+		sprintf(szRsrcCDMsg, "%s", trunc_char(szRsrcCDMsg));
+		sprintf(szLangCDMsg, "%s", trunc_char(szLangCDMsg));
+		sprintf(szRsrcName , "%s", trunc_char(szRsrcName ));
+
+		memset(szBaseDir , 0x00, sizeof(szBaseDir ));
+		memset(szBaseRsrc, 0x00, sizeof(szBaseRsrc));
+
+		retval = Process_ResultMake	( pSysCD
+									, szJobCD
+									, szEditor
+									, szStory
+									, szDirPath
+									, szRsrcCDMsg
+									, szLangCDMsg
+									, szRsrcName
+									, szBaseDir
+									, szBaseRsrc
+									, RstPtr
+									);
+		if (retval != 0) {
+			sprintf(gszLogMsg,"%s Process_ParmRsrc 목록READ [%s] [%s] [%s]", szPGMName, szSysCD, szUserID, szDummy1);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		}
+	}
+	fclose (SrcPtr);
+    fclose (RstPtr);
+	remove (pCmdInfo->szLocal);
+	
+	return (retval);
+
+}
+
+
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_RSARsrc                                  */
+/*	Action    : RSA 모델 신규대상 자원목록 작성                  */
+/*  Parameter : pSysCD   : 시스템코드                            */
+/*              pUserID  : 사용자번호                            */
+/*              pRstFile : 결과파일                              */
+/*              pRstCond : 처리결과                              */
+/*              pCmdInfo : SOCKET STRUCTURE                      */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Process_RSARsrc		( char *pSysCD
+							, char *pUserID
+							, char *pRstFile
+							, char *pRstCond
+							, CMD_INFO	*pCmdInfo
+							)
+{
+char	szJobCD                [dfJobCD];
+char	szEditor              [dfEditor];
+char	szStory                 [1000+1];
+char	szRsrcName          [dfRsrcName];
+char	szDirPath                [dfDir];
+char	szRsrcCDMsg              [100+1];
+char	szLangCDMsg              [100+1];
+char	szRsrcCD              [dfRsrcCD];
+char	szLangCD              [dfLangCD];
+char	szRstFile           [dfFullPath];
+char	szDsnCD                [dfDsnCD];
+char	szBaseDir                [dfDir];
+char	szBaseRsrc          [dfRsrcName];
+char	szBaseItem            [dfItemID];
+int 	retval                          ;
+FILE	*RstPtr                         ;
+FILE	*SrcPtr                         ;
+
+
+	sprintf(szConnID, "%s", "DEVECAMS");
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB2(szConnID) == FALSE) {
+		sprintf(gszLogMsg,"%s 개발형상관리 DATABASE CONNECT ERROR  [%s] [%s]", szPGMName, szSysCD, szUserID);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		return (1);
+	}
+
+	retval = 0;
+
+	sprintf(szRstFile, "%s", pRstFile);
+    if ((RstPtr = fopen(szRstFile, "w")) == (FILE *) NULL) {
+    	return (2);
+    }
+
+	EXEC SQL AT :szConnID DECLARE  DEV_Rsrc_List CURSOR FOR
+		SELECT  A.CR_JOBCD
+		      , A.CR_EDITOR
+		      , A.CR_RSRCNAME
+		      , A.CR_STORY
+		      , B.CM_DIRPATH
+		      , C.CM_CODENAME
+		      , D.CM_CODENAME
+		      , A.CR_RSRCCD
+		      , A.CR_LANGCD
+		      , A.CR_DSNCD
+		      , A.CR_BASEITEM
+		  FROM  CMR0020 A
+		      , CMM0070 B
+		      , CMM0020 C
+		      , CMM0020 D
+		 WHERE  A.CR_SYSCD   = :pSysCD
+ 		   AND  A.CR_EDITOR  = :pUserID
+		   AND  A.CR_STATUS != '9'
+		   AND  A.CR_CLSDATE IS NULL
+		   AND  A.CR_SYSCD   = B.CM_SYSCD
+		   AND  A.CR_DSNCD   = B.CM_DSNCD
+		   AND  C.CM_MACODE  = 'JAWON'
+		   AND  C.CM_MICODE  = A.CR_RSRCCD
+		   AND  D.CM_MACODE  = 'LANGUAGE'
+		   AND  D.CM_MICODE  = A.CR_LANGCD
+		   AND  A.CR_BASEITEM IS NULL
+           AND  A.CR_LSTVER > 0
+           AND  EXISTS (SELECT  'X'
+                          FROM  CMM0036 E
+                         WHERE  A.CR_SYSCD   = E.CM_SYSCD
+                           AND  A.CR_RSRCCD  = E.CM_RSRCCD
+                           AND  SUBSTR(E.CM_INFO, 58, 1) = '1'
+                       )
+		 ORDER  BY  NVL(A.CR_BASEITEM, '00000000000');
+
+
+	EXEC SQL AT :szConnID OPEN  DEV_Rsrc_List;
+    while (1) {
+		EXEC SQL AT :szConnID FETCH DEV_Rsrc_List
+			INTO  :szJobCD
+				, :szEditor
+				, :szRsrcName
+				, :szStory
+				, :szDirPath
+				, :szRsrcCDMsg
+				, :szLangCDMsg
+				, :szRsrcCD
+				, :szLangCD
+				, :szDsnCD
+				, :szBaseItem;
+
+		if (sqlca.sqlcode == 1403)	break;
+
+		sprintf(szJobCD    , "%s", trunc_char(szJobCD    ));
+		sprintf(szEditor   , "%s", trunc_char(szEditor   ));
+		sprintf(szRsrcName , "%s", trunc_char(szRsrcName ));
+		sprintf(szStory    , "%s", trunc_char(szStory    ));
+		sprintf(szDirPath  , "%s", trunc_char(szDirPath  ));
+		sprintf(szRsrcCDMsg, "%s", trunc_char(szRsrcCDMsg));
+		sprintf(szLangCDMsg, "%s", trunc_char(szLangCDMsg));
+		sprintf(szRsrcCD   , "%s", trunc_char(szRsrcCD   ));
+		sprintf(szLangCD   , "%s", trunc_char(szLangCD   ));
+		sprintf(szDsnCD    , "%s", trunc_char(szDsnCD    ));
+		sprintf(szBaseItem , "%s", trunc_char(szBaseItem ));
+
+		EXEC SQL AT :szConnID
+			SELECT  B.CM_DIRPATH
+			      , A.CR_RSRCNAME
+			  INTO  :szBaseDir
+			  	  , :szBaseRsrc
+			  FROM  CMR0020 A
+			      , CMM0070 B
+			 WHERE  A.CR_ITEMID = :szBaseItem
+			   AND  A.CR_SYSCD  = B.CM_SYSCD
+			   AND  A.CR_DSNCD  = B.CM_DSNCD;
+
+		if (sqlca.sqlcode != 0) {
+			memset(szBaseDir , 0x00, sizeof(szBaseDir ));
+			memset(szBaseRsrc, 0x00, sizeof(szBaseRsrc));
+		}
+
+		sprintf(szBaseDir , "%s", trunc_char(szBaseDir ));
+		sprintf(szBaseRsrc, "%s", trunc_char(szBaseRsrc));
+	
+		sprintf(szStory, "%s", rep_char(szStory, "\r", ""));
+		sprintf(szStory, "%s", rep_char(szStory, "\n", ""));
+		
+
+		retval = Process_ResultMake	( pSysCD
+									, szJobCD
+									, szEditor
+									, szStory
+									, szDirPath
+									, szRsrcCDMsg
+									, szLangCDMsg
+									, szRsrcName
+									, szBaseDir
+									, szBaseRsrc
+									, RstPtr
+									);
+	}
+	EXEC SQL AT :szConnID CLOSE DEV_Rsrc_List;
+	EXEC SQL AT :szConnID ROLLBACK WORK RELEASE;
+    fclose (RstPtr);
+
+	sprintf(gszLogMsg,"%s Process_RSARsrc    목록작성 완료  [%s] [%s]", szPGMName, pSysCD, szUserID);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+
+	return (retval);
+
+}
+
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_CoreShell                                */
+/*	Action    : CORE 배치 Shell 신규대상 자원목록 작성           */
+/*  Parameter : pSysCD   : 시스템코드                            */
+/*              pUserID  : 사용자번호                            */
+/*              pRstFile : 결과파일                              */
+/*              pRstCond : 처리결과                              */
+/*              pCmdInfo : SOCKET STRUCTURE                      */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Process_CoreShell	( char *pSysCD
+							, char *pUserID
+							, char *pRstFile
+							, char *pRstCond
+							, CMD_INFO	*pCmdInfo
+							)
+{
+char	szSysCmd            [dfFullPath];
+char	szDummy             [dfFullPath];
+char	szDummy1            [dfFullPath];
+char 	*szKeys                     [30];
+char 	*toktmp                         ;
+int 	retval                          ;
+int 	ret                             ;
+int	 	Index_key = 0                   ;
+int 	nCnt                            ;
+char	szJobCD                [dfJobCD];
+char	szEditor              [dfEditor];
+char	szStory                 [1000+1];
+char	szRsrcName          [dfRsrcName];
+char	szDirPath                [dfDir];
+char	szRsrcCDMsg              [100+1];
+char	szLangCDMsg              [100+1];
+char	szRsrcCD              [dfRsrcCD];
+char	szLangCD              [dfLangCD];
+char	szRstFile           [dfFullPath];
+char	szRstFile1          [dfFullPath];
+char	szDsnCD                [dfDsnCD];
+char	szSvrIP                [dfSvrIP];
+char	szDir                    [dfDir];
+int 	szPortNo                        ;
+char	szBaseDir                [dfDir];
+char	szBaseRsrc          [dfRsrcName];
+FILE	*RstPtr                         ;
+FILE	*SrcPtr                         ;
+
+
+	EXEC SQL
+		SELECT  A.CM_SVRIP
+		      , A.CM_PORTNO
+		      , A.CM_DIR
+		  INTO  :szSvrIP
+		  	  , :szPortNo
+		  	  , :szDir
+		  FROM  CMM0031 A
+		      , CMM0038 B
+		 WHERE  B.CM_SYSCD  = :pSysCD
+		   AND  B.CM_RSRCCD = 'F4'
+		   AND  B.CM_SVRCD = '01'
+		   AND  B.CM_SYSCD = A.CM_SYSCD
+		   AND  B.CM_SVRCD = A.CM_SVRCD
+		   AND  B.CM_SEQNO = A.CM_SEQNO
+		   AND  ROWNUM = 1;
+   	
+   	if (sqlca.sqlcode != 0)		return (1);
+   		
+   	NotUseDataTruncate(szSvrIP, 0x20);
+   	sprintf(szDir, "%s", trunc_char(szDir));
+   	
+	strcpy(pCmdInfo->szServerIP, szSvrIP);
+	pCmdInfo->nPort	= szPortNo;
+
+	sprintf(pCmdInfo->szJobGub , "%s", "S");
+	sprintf(pCmdInfo->szCommand, "/cbsapps/shl/allShellList.sh > %s/%s.txt", szDir, pUserID);
+	Server_Cmd_JOB(pCmdInfo);
+	LookCMD_INFO(pCmdInfo);	
+	sprintf(pRstCond, "%s", pCmdInfo->szRstCond);
+
+	sprintf(gszLogMsg,"%s Process_CoreShell 목록작성 완료  [%s] [%s] [%s]", szPGMName, szSysCD, szUserID, pRstCond);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+
+	if (strcmp(pRstCond, "0000") != 0) {
+		sprintf(pCmdInfo->szJobGub , "%s", "S");
+		sprintf(pCmdInfo->szCommand, "rm -f %s/%s.txt", szDir, pUserID);
+		Server_Cmd_JOB(pCmdInfo);	
+		sprintf(pRstCond, "%s", pCmdInfo->szRstCond);		
+		return (1);
+	}
+
+	sprintf(pCmdInfo->szJobGub, "%s", "G");
+	sprintf(pCmdInfo->szRemote, "%s/%s.txt", szDir      , pUserID);
+	sprintf(pCmdInfo->szLocal , "%s%s.shell", gszTempPath, pUserID);
+	Server_Cmd_JOB(pCmdInfo);
+	LookCMD_INFO(pCmdInfo);
+
+	sprintf(gszLogMsg,"%s Process_CoreShell 목록수신 완료  [%s] [%s] [%s]", szPGMName, szSysCD, szUserID, pRstCond);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+	
+	sprintf(pRstCond, "%s", pCmdInfo->szRstCond);
+
+	sprintf(pCmdInfo->szJobGub , "%s", "S");
+	sprintf(pCmdInfo->szCommand, "rm -f %s/%s.txt", szDir, pUserID);
+	Server_Cmd_JOB(pCmdInfo);
+	LookCMD_INFO(pCmdInfo);
+	
+	if (strcmp(pRstCond, "0000") != 0) {	
+		remove (pCmdInfo->szLocal);
+		return (1);
+	}
+	
+	if (Sort_ResultFile(pCmdInfo->szLocal) != 0) {
+		remove (pCmdInfo->szLocal);
+		return (1);
+	}
+	
+	sprintf(szRstFile, "%s%s.txt", gszTempPath, pUserID);
+    if ((SrcPtr = fopen(pCmdInfo->szLocal, "r") ) == (FILE *) NULL) {
+    	printf("FILE OPEN Error 1 [%s]\n", szRstFile);
+    	return (1);
+    }
+
+    if ((RstPtr = fopen(szRstFile, "a+") ) == (FILE *) NULL) {
+    	printf("FILE OPEN Error 2 [%s]\n", szRstFile);
+    	return (2);
+    }
+	
+	retval = 0;
+	
+	while (fgets(szDummy, 2048, SrcPtr) != (char *) NULL) {
+        /*-------------------------------------------------------*/
+    	/* Return Valure Truncate                                */
+        /*-------------------------------------------------------*/
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r\n" , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\n"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\t\t" , "\t \t"));
+        sprintf(szDummy, "%s", trunc_char(szDummy));
+        strcpy(szDummy1, szDummy);
+        strcat (szDummy, "\t");
+
+		Index_key = 0;
+		while(1) {
+			if (Index_key == 0)
+				szKeys[Index_key] = strtok_r(szDummy,"\t",&toktmp);
+			else
+				szKeys[Index_key] = strtok_r(NULL,"\t",&toktmp);
+
+			if (szKeys[Index_key] == NULL)		break;
+			
+			Index_key++;
+		}
+
+		if (Index_key == 0) {
+			fprintf(stderr,"Index_key == 0\n");
+			return 2;
+		}
+		
+		sprintf(szJobCD    , "%s", szKeys[0]);
+		sprintf(szEditor   , "%s", szKeys[1]);
+		sprintf(szStory    , "%s", szKeys[3]);
+		sprintf(szDirPath  , "%s", szKeys[4]);
+		sprintf(szRsrcCDMsg, "%s", szKeys[5]);
+		sprintf(szLangCDMsg, "%s", szKeys[6]);
+		sprintf(szRsrcName , "%s", szKeys[2]);
+
+		sprintf(szJobCD    , "%s", trunc_char(szJobCD    ));
+		sprintf(szEditor   , "%s", trunc_char(szEditor   ));
+		sprintf(szStory    , "%s", trunc_char(szStory    ));
+		sprintf(szDirPath  , "%s", trunc_char(szDirPath  ));
+		sprintf(szRsrcCDMsg, "%s", trunc_char(szRsrcCDMsg));
+		sprintf(szLangCDMsg, "%s", trunc_char(szLangCDMsg));
+		sprintf(szRsrcName , "%s", trunc_char(szRsrcName ));
+		
+		memset(szBaseDir , 0x00, sizeof(szBaseDir ));
+		memset(szBaseRsrc, 0x00, sizeof(szBaseRsrc));
+
+		retval = Process_ResultMake	( pSysCD
+									, szJobCD
+									, pUserID
+									, szStory
+									, szDirPath
+									, szRsrcCDMsg
+									, szLangCDMsg
+									, szRsrcName
+									, szBaseDir
+									, szBaseRsrc
+									, RstPtr
+									);
+																
+		if (retval != 0) {
+			sprintf(gszLogMsg,"%s [%s]", szPGMName, szDummy1);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);			
+		}
+	}
+    fclose (RstPtr);
+	remove (pCmdInfo->szLocal);
+	return (retval);
+	
+}
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Check_ErrCheck_eai                               */
+/*	Action    : eai/fep 목록작성 처리결과 체크                   */
+/*  Parameter : pRstFile : 처리결과파일                          */
+/*              pRstCond : 처리결과                              */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Check_ErrCheck_eai	( char *pRstFile
+							, char *pResultF
+							, char *pRstCond
+							)
+{
+char	szDummy             [dfFullPath];
+char	szDummy1            [dfFullPath];
+char	szRstCode                  [100];
+char	szRstFile           [dfFullPath];
+int 	retval                          ;
+int 	ret                             ;
+FILE	*SrcPtr                         ;
+
+
+    if ((SrcPtr = fopen(pRstFile, "r") ) == (FILE *) NULL) {
+    	fprintf(stderr, "FILE OPEN ERROR = [%s]\n", pRstFile);
+    	sprintf(pRstCond, "%s", "EROR");
+    	return (1);
+    }
+
+	sprintf(pRstCond, "%s", "EROR");
+	retval = 1;
+    memset(szDummy, 0x00, sizeof(szDummy));
+    while (fgets(szDummy, 256, SrcPtr) != (char *) NULL) {
+        sprintf(szDummy, "%s", rep_char(szDummy,"\n",""));
+		sprintf(szDummy, "%s", rep_char(szDummy,"\r",""));
+		sprintf(szDummy, "%s", trunc_char(szDummy));
+
+		if (strlen(szDummy) == 0)	continue;
+
+		ret = Char_Check(szDummy, "result=");
+		if (ret < 0) {
+			continue;
+		}
+		sprintf(szDummy, "%s", right_char(szDummy, strlen(szDummy) - ret - 7));
+		sprintf(szDummy, "%s", trunc_char(szDummy));
+
+		ret = Char_Check(szDummy, "}");
+		if (ret >= 0) {
+			sprintf(szDummy, "%s", left_char(szDummy, ret));
+			sprintf(szDummy, "%s", trunc_char(szDummy));
+		}
+
+		ret = Char_Check(szDummy, ",");
+		if (ret >= 0) {
+			sprintf(szRstCode, "%s", left_char(szDummy, ret));
+			sprintf(szDummy, "%s", right_char(szDummy, strlen(szDummy) - ret - 1));
+		}
+		
+		ret = Char_Check(szDummy, "=");
+		if (ret >= 0) {
+			sprintf(szRstFile, "%s", right_char(szDummy, strlen(szDummy) - ret - 1));
+		}
+
+		sprintf(szRstCode, "%s", trunc_char(szRstCode));
+		sprintf(szRstFile, "%s", trunc_char(szRstFile));
+		
+		if (strcmp(szRstCode, "Y") == 0) {
+			retval = 0;
+			strcpy(pResultF, szRstFile);
+		}
+		else
+			retval = 1;
+
+		break;
+    }
+    fclose (SrcPtr);
+
+	if (retval == 0) {
+		sprintf(pRstCond, "%s", "0000");
+	}
+	else {
+		sprintf(pRstCond, "%s", "EROR");
+		return (1);
+	}
+	
+	sprintf(gszLogMsg,"%s Check_ErrCheck_eai  [%s] [%s] szRstCode=[%s] szRstFile=[%s]", szPGMName, szSysCD, szUserID, pRstCond, szRstFile);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+
+	return (0);
+
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Check_ErrCheck_SCR                               */
+/*	Action    : 통합단말 목록작성 처리결과 체크                  */
+/*  Parameter : pRstFile : 처리결과파일                          */
+/*              pRstCond : 처리결과                              */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Check_ErrCheck_SCR	( char *pRstFile
+							, char *pResultF
+							, char *pRstCond
+							)
+{
+char	szDummy             [dfFullPath];
+char	szDummy1            [dfFullPath];
+char	szRstCode                  [100];
+char	szRstFile           [dfFullPath];
+int 	retval                          ;
+int 	ret                             ;
+FILE	*SrcPtr                         ;
+
+
+	memset(pResultF, 0x00, sizeof(pResultF));
+	
+    if ((SrcPtr = fopen(pRstFile, "r") ) == (FILE *) NULL) {
+    	fprintf(stderr, "FILE OPEN ERROR = [%s]\n", pRstFile);
+    	sprintf(pRstCond, "%s", "EROR");
+    	return (1);
+    }
+
+	sprintf(pRstCond, "%s", "EROR");
+	retval = 1;
+    memset(szDummy, 0x00, sizeof(szDummy));
+    while (fgets(szDummy, 256, SrcPtr) != (char *) NULL) {
+        sprintf(szDummy, "%s", rep_char(szDummy,"\n",""));
+		sprintf(szDummy, "%s", rep_char(szDummy,"\r",""));
+		sprintf(szDummy, "%s", trunc_char(szDummy));
+
+		if (strlen(szDummy) == 0)	continue;
+
+		ret = Char_Check(szDummy, "result=");
+		if (ret < 0) {
+			continue;
+		}
+		sprintf(szDummy, "%s", right_char(szDummy, strlen(szDummy) - ret - 7));
+		sprintf(szDummy, "%s", trunc_char(szDummy));
+
+		ret = Char_Check(szDummy, "}");
+		if (ret >= 0) {
+			sprintf(szDummy, "%s", left_char(szDummy, ret));
+			sprintf(szDummy, "%s", trunc_char(szDummy));
+		}
+
+		ret = Char_Check(szDummy, "&");
+		if (ret >= 0) {
+			sprintf(szRstCode, "%s", left_char(szDummy, ret));
+			sprintf(szDummy, "%s", right_char(szDummy, strlen(szDummy) - ret - 1));
+		}
+
+		ret = Char_Check(szDummy, "=");
+		if (ret >= 0) {
+			sprintf(szRstFile, "%s", right_char(szDummy, strlen(szDummy) - ret - 1));
+		}
+
+		sprintf(szRstCode, "%s", trunc_char(szRstCode));
+		sprintf(szRstFile, "%s", trunc_char(szRstFile));
+
+
+		if (strcmp(szRstCode, "Y") == 0 ||
+			strcmp(szRstCode, "y") == 0 ) {
+			retval = 0;
+			strcpy(pResultF, szRstFile);
+		}
+		else
+			retval = 1;
+
+		break;
+    }
+    fclose (SrcPtr);
+
+	if (retval == 0) {
+		sprintf(pRstCond, "%s", "0000");
+	}
+	else {
+		sprintf(pRstCond, "%s", "EROR");
+	}
+	
+	sprintf(gszLogMsg,"%s Check_ErrCheck_SCR  [%s] [%s] [%s] [%s]", szPGMName, szSysCD, szUserID, szRstCode, szRstFile);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+
+	return (retval);
+
+}
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_IBRsrc                                   */
+/*	Action    : 인터넷뱅킹 신규대상 자원목록 작성                */
+/*  Parameter : pSysCD   : 시스템코드                            */
+/*              pUserID  : 사용자번호                            */
+/*              pRstFile : 결과파일                              */
+/*              pRstCond : 처리결과                              */
+/*              pCmdInfo : SOCKET STRUCTURE                      */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Process_IBRsrc	( char *pSysCD
+						, char *pUserID
+						, char *pRstFile
+						, char *pRstCond
+						, CMD_INFO	*pCmdInfo
+						)
+{
+char	szSysCmd            [dfFullPath];
+char	szDummy                   [2048];
+char	szDummy1            [dfFullPath];
+char 	*szKeys                     [30];
+char 	*toktmp                         ;
+int 	retval                          ;
+int 	ret                             ;
+int	 	Index_key = 0                   ;
+int 	nCnt                            ;
+char	szJobCD                [dfJobCD];
+char	szEditor              [dfEditor];
+char	szStory                 [1000+1];
+char	szRsrcName          [dfRsrcName];
+char	szDirPath                [dfDir];
+char	szRsrcCDMsg              [100+1];
+char	szLangCDMsg              [100+1];
+char	szRstFile           [dfFullPath];
+char	szBaseDir                [dfDir];
+char	szBaseRsrc          [dfRsrcName];
+char	szSysMsg                   [100];
+int 	szPortNo                        ;
+FILE	*RstPtr                         ;
+FILE	*SrcPtr                         ;
+
+
+	sprintf(szRstFile, "%s.lst", pRstFile);
+	sprintf(szSysCmd, "java -cp .:./json-simple-1.1.1.jar Https_Call 'nadmin.jbbank.co.kr:4433/jbbankNewFileList.jct' 'SYS_GBN=%s&USR_ID=%s' '%s'", pSysCD, pUserID, szRstFile);
+	retval = system(szSysCmd);
+
+	sprintf(gszLogMsg,"%s Process_IBRsrc     목록작성 요청완료 [%s] [%s] [%s] [%d]", szPGMName, szSysCD, szUserID, szSysCmd, retval);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+ 
+ 	if (retval != 0) {
+		return (retval);
+	}
+	
+	File_Encoding(szRstFile);
+	
+	if (Sort_ResultFile(szRstFile) != 0) {
+		remove (szRstFile);
+		return (1);
+	}
+
+    if ((SrcPtr = fopen(szRstFile, "r") ) == (FILE *) NULL) {
+    	fprintf(stderr, "File Open Error = [%s]\n", szRstFile);
+    	return (1);
+    }
+
+    if ((RstPtr = fopen(pRstFile, "w") ) == (FILE *) NULL) {
+    	fprintf(stderr, "File Open Error = [%s]\n", pRstFile);
+    	return (2);
+    }
+
+	retval = 0;
+	memset(szDummy, 0x00, sizeof(szDummy));
+	while (fgets(szDummy, 2048, SrcPtr) != (char *) NULL) {
+        /*-------------------------------------------------------*/
+    	/* Return Valure Truncate                                */
+        /*-------------------------------------------------------*/
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r\n" , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\n"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\t\t" , "\t \t"));
+        sprintf(szDummy, "%s", trunc_char(szDummy));
+        strcpy(szDummy1, szDummy);
+        strcat (szDummy, "\t");
+ 		
+		Index_key = 0;
+		while(1) {
+			if (Index_key == 0)
+				szKeys[Index_key] = strtok_r(szDummy,"\t",&toktmp);
+			else
+				szKeys[Index_key] = strtok_r(NULL,"\t",&toktmp);
+
+			if (szKeys[Index_key] == NULL)		break;
+
+			Index_key++;
+		}
+
+		if (Index_key == 0) {
+			fprintf(stderr,"Index_key == 0\n");
+			return 2;
+		}
+
+		sprintf(szJobCD    , "%s", szKeys[0]);
+		sprintf(szEditor   , "%s", szKeys[1]);
+		sprintf(szRsrcName , "%s", szKeys[2]);
+		sprintf(szStory    , "%s", szKeys[3]);
+		sprintf(szDirPath  , "%s", szKeys[4]);
+		sprintf(szRsrcCDMsg, "%s", szKeys[5]);
+		sprintf(szLangCDMsg, "%s", szKeys[6]);
+
+		sprintf(szJobCD    , "%s", trunc_char(szJobCD    ));
+		sprintf(szEditor   , "%s", trunc_char(szEditor   ));
+		sprintf(szStory    , "%s", trunc_char(szStory    ));
+		sprintf(szDirPath  , "%s", trunc_char(szDirPath  ));
+		sprintf(szRsrcCDMsg, "%s", trunc_char(szRsrcCDMsg));
+		sprintf(szLangCDMsg, "%s", trunc_char(szLangCDMsg));
+		sprintf(szRsrcName , "%s", trunc_char(szRsrcName ));
+
+		memset(szBaseDir , 0x00, sizeof(szBaseDir ));
+		memset(szBaseRsrc, 0x00, sizeof(szBaseRsrc));
+
+		retval = Process_ResultMake	( pSysCD
+									, szJobCD
+									, szEditor
+									, szStory
+									, szDirPath
+									, szRsrcCDMsg
+									, szLangCDMsg
+									, szRsrcName
+									, szBaseDir
+									, szBaseRsrc
+									, RstPtr
+									);
+																
+		if (retval != 0) {
+			sprintf(gszLogMsg,"%s [%s]", szPGMName, szDummy1);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);					
+
+			sprintf(gszLogMsg,"%s [%s][%s][%s][%s][%s][%s][%s]", szPGMName, szJobCD, szEditor, szRsrcName, szStory, szDirPath, szRsrcCDMsg, szLangCDMsg);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);			
+		}
+	}
+    fclose (SrcPtr);
+    fclose (RstPtr);
+	remove (szRstFile);
+	return (retval);
+
+}
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_GITRsrc                                   */
+/*	Action    : GITLAB 신규대상 자원목록 작성                        */
+/*  Parameter : pSysCD   : 시스템코드                            */
+/*              pUserID  : 사용자번호                            */
+/*              pRstFile : 결과파일                              */
+/*              pRstCond : 처리결과                              */
+/*              pCmdInfo : SOCKET STRUCTURE                      */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Process_GITRsrc	( char *pSysCD
+                        , char *pJobCD
+						, char *pUserID
+						, char *pProgName
+						, char *pRstFile
+						, char *pRstCond
+						, CMD_INFO	*pCmdInfo
+						)
+{
+char	szSysCmd            [dfFullPath];
+char	szDummy                   [2048];
+char	szDummy1            [dfFullPath];
+char 	*szKeys                     [30];
+char 	*toktmp                         ;
+int 	retval                          ;
+int 	ret                             ;
+int	 	Index_key = 0                   ;
+int 	nCnt                            ;
+char	szJobCD                [dfJobCD];
+char	szEditor              [dfEditor];
+char	szStory                 [1000+1];
+char	szRsrcName          [dfRsrcName];
+char	szDirPath                [dfDir];
+char	szRsrcCDMsg              [100+1];
+char	szLangCDMsg              [100+1];
+char	szRstFile           [dfFullPath];
+char	szBaseDir                [dfDir];
+char	szBaseRsrc          [dfRsrcName];
+char    szTarDir                 [dfDir];
+char	szSysMsg                   [100];
+int 	szPortNo                        ;
+FILE	*RstPtr                         ;
+FILE	*SrcPtr                         ;
+
+
+	sprintf(szRstFile, "%s.lst", pRstFile);
+	remove(szRstFile);
+	if (strlen(pProgName)>0) sprintf(szSysCmd, "./ecams_gitlab_export %s %s %s 99 %s", pSysCD, pJobCD, pUserID, pProgName);
+	else sprintf(szSysCmd, "./ecams_gitlab_export %s %s %s 99", pSysCD, pJobCD, pUserID);
+	retval = system(szSysCmd);
+    
+    
+	sprintf(gszLogMsg,"%s Process_GITRsrc     목록작성 요청 [%s] [%s] [%s] [%s]", szPGMName, pSysCD, pJobCD, pUserID, szSysCmd);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+	
+	
+	sprintf(szTarDir,"%s/%s_%s_99",gszTempPath,pUserID,pSysCD);
+    sprintf(szSysCmd,"rm -rf %s",szTarDir);	
+    system(szSysCmd);
+        
+	sprintf(gszLogMsg,"%s Process_GITRsrc     목록작성 요청완료 [%s] [%s] [%s] [%s] [%d]", szPGMName, pSysCD, pJobCD, pUserID, szSysCmd, retval);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+ 
+ 	if (retval != 0) {
+		return (retval);
+	}
+	
+	File_Encoding(szRstFile);
+	
+	if (Sort_ResultFile(szRstFile) != 0) {
+		remove (szRstFile);
+		return (1);
+	}
+
+    if ((SrcPtr = fopen(szRstFile, "r") ) == (FILE *) NULL) {
+    	fprintf(stderr, "File Open Error = [%s]\n", szRstFile);
+    	return (1);
+    }
+
+    if ((RstPtr = fopen(pRstFile, "w") ) == (FILE *) NULL) {
+    	fprintf(stderr, "File Open Error = [%s]\n", pRstFile);
+    	return (2);
+    }
+
+	retval = 0;
+	memset(szDummy, 0x00, sizeof(szDummy));
+	while (fgets(szDummy, 2048, SrcPtr) != (char *) NULL) {
+        /*-------------------------------------------------------*/
+    	/* Return Valure Truncate                                */
+        /*-------------------------------------------------------*/
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r\n" , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\n"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\t\t" , "\t \t"));
+        sprintf(szDummy, "%s", trunc_char(szDummy));
+        strcpy(szDummy1, szDummy);
+        strcat (szDummy, "\t");
+ 		
+		Index_key = 0;
+		while(1) {
+			if (Index_key == 0)
+				szKeys[Index_key] = strtok_r(szDummy,"\t",&toktmp);
+			else
+				szKeys[Index_key] = strtok_r(NULL,"\t",&toktmp);
+
+			if (szKeys[Index_key] == NULL)		break;
+
+			Index_key++;
+		}
+
+		if (Index_key == 0) {
+			fprintf(stderr,"Index_key == 0\n");
+			return 2;
+		}
+
+		sprintf(szJobCD    , "%s", szKeys[0]);
+		sprintf(szEditor   , "%s", szKeys[1]);
+		sprintf(szRsrcName , "%s", szKeys[2]);
+		sprintf(szStory    , "%s", szKeys[3]);
+		sprintf(szDirPath  , "%s", szKeys[4]);
+		sprintf(szRsrcCDMsg, "%s", szKeys[5]);
+		sprintf(szLangCDMsg, "%s", szKeys[6]);
+
+		sprintf(szJobCD    , "%s", trunc_char(szJobCD    ));
+		sprintf(szEditor   , "%s", trunc_char(szEditor   ));
+		sprintf(szStory    , "%s", trunc_char(szStory    ));
+		sprintf(szDirPath  , "%s", trunc_char(szDirPath  ));
+		sprintf(szRsrcCDMsg, "%s", trunc_char(szRsrcCDMsg));
+		sprintf(szLangCDMsg, "%s", trunc_char(szLangCDMsg));
+		sprintf(szRsrcName , "%s", trunc_char(szRsrcName ));
+
+		memset(szBaseDir , 0x00, sizeof(szBaseDir ));
+		memset(szBaseRsrc, 0x00, sizeof(szBaseRsrc));
+
+		retval = Process_ResultMake	( pSysCD
+									, szJobCD
+									, szEditor
+									, szStory
+									, szDirPath
+									, szRsrcCDMsg
+									, szLangCDMsg
+									, szRsrcName
+									, szBaseDir
+									, szBaseRsrc
+									, RstPtr
+									);
+																
+		if (retval != 0) {
+			sprintf(gszLogMsg,"%s [%s]", szPGMName, szDummy1);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);					
+
+			sprintf(gszLogMsg,"%s [%s][%s][%s][%s][%s][%s][%s]", szPGMName, szJobCD, szEditor, szRsrcName, szStory, szDirPath, szRsrcCDMsg, szLangCDMsg);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);			
+		}
+	}
+    fclose (SrcPtr);
+    fclose (RstPtr);
+	remove (szRstFile);
+	return (retval);
+
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_ResultMake                               */
+/*	Action    : 디렉토리정보 작성 및 목록파일 작성               */
+/*  Parameter : pSysCD     : 시스템코드                          */
+/*              pJobCD     : 업무코드                            */
+/*              pEditor    : 신규등록사번                        */
+/*              pStory     : 프로그램설명                        */
+/*              pDirPath   : 디렉토리                            */
+/*              pRsrcCDMsg : 프로그램종류                        */
+/*              pLangCDMsg : 언어                                */
+/*              pRsrcName  : 프로그램명                          */
+/*              pRstPtr    : 목록파일 Pointer                    */
+/*	Return    : 오류건수                                         */
+/*---------------------------------------------------------------*/
+int 	Process_ResultMake	( char *pSysCD
+							, char *pJobCD
+							, char *pEditor
+							, char *pStory
+							, char *pDirPath
+							, char *pRsrcCDMsg
+							, char *pLangCDMsg
+							, char *pRsrcName
+							, char *pBaseDir
+							, char *pBaseRsrc
+							, FILE *pRstPtr
+							)
+{
+char	szRsrcCD              [dfRsrcCD];
+char	szLangCD              [dfLangCD];
+char	szDsnCD                [dfDsnCD];
+int 	nCnt                            ;
+char	szJobCD                [dfJobCD];
+
+
+	/*-----------------------------------------------------------*/
+	/*	디렉토리 체크하여 미등록이면 등록 (CMM0070)              */
+	/*-----------------------------------------------------------*/
+	while (1) {
+		EXEC SQL
+			SELECT  CM_DSNCD
+			  INTO  :szDsnCD
+			  FROM  CMM0070
+			 WHERE  CM_SYSCD   = :pSysCD
+			   AND  CM_DIRPATH = :pDirPath;
+
+		if (sqlca.sqlcode != 0) {
+			EXEC SQL
+				SELECT  LPAD(NVL(MAX(CM_DSNCD), 0) + 1, 7, '0')
+				  INTO  :szDsnCD
+				  FROM  CMM0070
+			     WHERE  CM_SYSCD = :pSysCD;
+
+			if (sqlca.sqlcode != 0)
+				break;
+
+			NotUseDataTruncate (szDsnCD, 0x20);
+
+			EXEC SQL
+				INSERT  INTO  CMM0070
+					( CM_SYSCD
+					, CM_DSNCD
+					, CM_DIRPATH
+					, CM_EDITOR
+					, CM_OPENDT
+					, CM_LASTUPDT
+					)
+				VALUES
+					( :pSysCD
+					, :szDsnCD
+					, :pDirPath
+					, :pEditor
+					, SYSDATE
+					, SYSDATE
+					);
+
+			if (sqlca.sqlcode == 0)	break;
+			sleep (1);
+		}
+		else {
+			break;
+		}
+	}
+	NotUseDataTruncate (szDsnCD, 0x20);
+	EXEC SQL COMMIT;
+
+
+	/*-----------------------------------------------------------*/
+	/*	기 등록여부 조회                                         */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  NVL(COUNT(*), 0)
+		  INTO  :nCnt
+		  FROM  CMR0020
+		 WHERE  CR_SYSCD    = :pSysCD
+		   AND  CR_DSNCD    = :szDsnCD
+		   AND  CR_RSRCNAME = :pRsrcName;
+
+	if (sqlca.sqlcode != 0) {
+		nCnt = 0;
+	}
+
+	if (nCnt > 0) {
+		return (0);
+	}
+
+	/*-----------------------------------------------------------*/
+	/*	업무코드 체크                                            */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  NVL(COUNT(*), 0)
+		  INTO  :nCnt
+		  FROM  CMM0102
+		 WHERE  CM_JOBCD = :pJobCD;
+
+	if (sqlca.sqlcode != 0)
+		nCnt = 0;
+
+	if (nCnt == 0) {
+		EXEC SQL
+			SELECT  CM_JOBCD
+			  INTO  :szJobCD
+			  FROM  CMM0102
+			 WHERE  CM_JOBNAME = :pJobCD;
+
+		if (sqlca.sqlcode != 0) {
+			sprintf(gszLogMsg,"%s 업무코드 오류 : [%s] [%s] [%s]", szPGMName, szSysCD, szUserID, pJobCD);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			return (1);
+		}		
+		NotUseDataTruncate (szJobCD, 0x20);
+	}
+	else {
+		sprintf(szJobCD, "%s", pJobCD);			
+	}
+
+
+	/*-----------------------------------------------------------*/
+	/*	프로그램 종류코드 체크                                     */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  CM_MICODE
+		  INTO  :szRsrcCD
+		  FROM  CMM0020
+		 WHERE  CM_MACODE = 'JAWON'
+		   AND  CM_CODENAME = :pRsrcCDMsg
+		   AND  CM_CLOSEDT IS NULL;
+
+	if (sqlca.sqlcode != 0)
+		memset(szRsrcCD, 0x00, sizeof(szRsrcCD));
+
+	if (strlen(szRsrcCD) == 0) {
+		sprintf(gszLogMsg,"%s 프로그램종류 오류 : [%s] [%s] [%s] [%s]", szPGMName, szSysCD, szUserID, pRsrcCDMsg, pRsrcName);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		return (1);
+	}
+
+	NotUseDataTruncate (szRsrcCD, 0x20);
+
+
+	/*-----------------------------------------------------------*/
+	/*	언어코드 체크                                            */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  CM_MICODE
+		  INTO  :szLangCD
+		  FROM  CMM0020
+		 WHERE  CM_MACODE = 'LANGUAGE'
+		   AND  CM_CODENAME = :pLangCDMsg
+		   AND  CM_CLOSEDT IS NULL
+		   AND  ROWNUM = 1;
+
+	if (sqlca.sqlcode != 0)
+		memset(szLangCD, 0x00, sizeof(szLangCD));
+
+	if (strlen(szLangCD) == 0) {
+		sprintf(gszLogMsg,"%s 언어종류 오류 : [%s] [%s] [%s] [%s]", szPGMName, szSysCD, szUserID, pLangCDMsg, pRsrcName);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		return (1);
+	}
+	NotUseDataTruncate (szLangCD, 0x20);
+
+	/*-----------------------------------------------------------*/
+	/*	시스템별 미등록 자원종류 제외                            */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  NVL(COUNT(*), 0)
+		  INTO  :nCnt
+		  FROM  CMM0036
+		 WHERE  CM_SYSCD  = :pSysCD
+		   AND  CM_RSRCCD = :szRsrcCD;
+
+	if (sqlca.sqlcode != 0)
+		nCnt = 0;
+
+	if (nCnt == 0) {
+		sprintf(gszLogMsg, "%s 시스템별 프로그램종류 오류 : [%s] [%s] [%s] [%s] [%s]", szPGMName, szSysCD, szUserID, pSysCD, szRsrcCD, pRsrcName);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		return (2);
+	}
+	
+	/*-----------------------------------------------------------*/
+	/*	디렉토리별 사용가능 프로그램종류 등록 (CMM0072)          */
+	/*-----------------------------------------------------------*/
+	while (1) {
+		EXEC SQL
+			SELECT  NVL(COUNT(CM_RSRCCD), 0)
+			  INTO  :nCnt
+			  FROM  CMM0072
+			 WHERE  CM_SYSCD  = :pSysCD
+			   AND  CM_DSNCD  = :szDsnCD
+			   AND  CM_RSRCCD = :szRsrcCD;
+
+		if (sqlca.sqlcode != 0) {
+			EXEC SQL
+				INSERT  INTO  CMM0072
+					( CM_SYSCD
+					, CM_DSNCD
+					, CM_RSRCCD
+					)
+				VALUES
+					( :pSysCD
+					, :szDsnCD
+					, :szRsrcCD
+					);
+
+			if (sqlca.sqlcode == 0)	break;
+			sleep (1);
+		}
+		else {
+			break;
+		}
+	}
+	EXEC SQL COMMIT;
+
+	/*-----------------------------------------------------------*/
+	/*	디렉토리별 사용가능 업무 등록 (CMM0073)                  */
+	/*-----------------------------------------------------------*/
+	while (1) {
+		EXEC SQL
+			SELECT  NVL(COUNT(CM_JOBCD), 0)
+			  INTO  :nCnt
+			  FROM  CMM0073
+			 WHERE  CM_SYSCD = :pSysCD
+			   AND  CM_DSNCD = :szDsnCD
+			   AND  CM_JOBCD = :szJobCD;
+
+		if (sqlca.sqlcode != 0) {
+			EXEC SQL
+				INSERT  INTO  CMM0073
+					( CM_SYSCD
+					, CM_DSNCD
+					, CM_JOBCD
+					)
+				VALUES
+					( :pSysCD
+					, :szDsnCD
+					, :szJobCD
+					);
+
+			if (sqlca.sqlcode == 0)	break;
+			sleep (1);
+		}
+		else {
+			break;
+		}
+	}
+	EXEC SQL COMMIT;
+
+
+	/*-----------------------------------------------------------*/
+	/*	신규대상 동일 파일 제거                                  */
+	/*-----------------------------------------------------------*/
+	if (strcmp(szSaveDsnCD   , szDsnCD  ) == 0 &&
+		strcmp(szSaveRsrcName, pRsrcName) == 0 ) {
+		return(1);
+	}
+
+	strcpy(szSaveDsnCD   , szDsnCD  );
+	strcpy(szSaveRsrcName, pRsrcName);
+
+	/*-----------------------------------------------------------*/
+	/*	신규대상 파일 목록 작성                                  */
+	/*-----------------------------------------------------------*/
+	if (strlen(pStory) == 0)
+		sprintf(pStory, "%s", "설명없음");
+
+	if (strlen(pBaseDir) == 0)
+		sprintf(pBaseDir, "%s", " ");
+
+	if (strlen(pBaseRsrc) == 0)
+		sprintf(pBaseRsrc, "%s", " ");
+
+	/*-----------------------------------------------------------*/
+	/*	신규대상 파일 작성                                       */
+	/*-----------------------------------------------------------*/
+	fprintf(pRstPtr, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n"
+				   , szJobCD, pEditor, pRsrcName, pStory, pDirPath, pRsrcCDMsg, pLangCDMsg, szRsrcCD, szLangCD, szDsnCD, pBaseDir, pBaseRsrc);
+
+	return (0);
+}
+
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Sort_ResultFile                                  */
+/*	Action    : 디렉토리정보 작성 및 목록파일 작성               */
+/*  Parameter : pFileName  : 자동신규 결과 파일                  */
+/*	Return    : 0 : 정상, 1 : 오류                               */
+/*---------------------------------------------------------------*/
+int 	Sort_ResultFile		( char *pFileName
+							)
+{
+char	szSysCmd            [dfFullPath];
+char	szSortFileNM        [dfFullPath];
+int 	retval                          ;
+
+
+	sprintf(szSortFileNM, "%s.sort", pFileName);	
+	sprintf(szSysCmd, "sort %s 1> %s 2>/dev/null", pFileName, szSortFileNM);
+	
+	retval = system(szSysCmd) / 256;
+	if (retval == 0) {
+		sprintf(szSysCmd, "mv %s %s", szSortFileNM, pFileName);
+		retval = system(szSysCmd) / 256;
+	}
+	else {
+		remove (szSortFileNM);
+		retval = 1;
+	}
+	return (retval);	
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

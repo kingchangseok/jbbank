@@ -1,0 +1,337 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_acct_test.pc                           │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ eCAMS 신청자원의 처리                        │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2013. 08. 27                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+typedef struct
+{
+	short len;
+	char  arr[100];
+} vr;
+
+/*---------------------------------------------------------------*/
+/*       Oracle Sql Bind 변수 DEFINE                             */
+/*---------------------------------------------------------------*/
+EXEC SQL BEGIN DECLARE SECTION;
+    EXEC SQL TYPE vr IS VARRAW(100);
+    vr my_vr;
+EXEC SQL END DECLARE SECTION;
+
+
+#define DEBUG 1
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+void 	ProcJobID				(char *, char *, char *);
+int 	IsPrivProcErr			(char *, char *);
+
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath             [dfDir];
+
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			신청자원의 처리   M A I N                            */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+char	szAcptNo              [dfAcptNo]; /* eCAMS Log 접수번호  */
+char	szJobID               [dfPrcSys]; /* 처리 구분           */
+char	szRstCond            [dfRstCode]; /* 처리 결과 받을 변수 */
+char	SysCmd                     [256];
+int		nPid                            ;
+
+
+    if ( argc != 3 ) {
+        printf ("usage : %s <신청번호> <처리단계>\n", argv[0]);
+        exit (0);
+	}
+
+	memset(szAcptNo , 0x00, sizeof(szAcptNo ));
+    memset(szJobID  , 0x00, sizeof(szJobID  ));
+    memset(szRstCond, 0x00, sizeof(szRstCond));
+
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	/*-----------------------------------------------------------*/
+	/* 	신청번호 , 시리얼번호 초기화	          			     */
+	/*-----------------------------------------------------------*/
+	sprintf(szAcptNo, "%s", argv[1]);     /* 접수번호         */
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+	memset(szJobID, 0x00, sizeof(szJobID));
+	sprintf(szJobID, "%s", argv[2]);
+
+	/*-----------------------------------------------------------*/
+    /*   소스백업 디렉토리                                       */
+    /*-----------------------------------------------------------*/
+	SetTempDir("93", gszBackPath);
+
+	/*-----------------------------------------------------------*/
+	/*	ResultFile Dir 체크                                      */
+	/*-----------------------------------------------------------*/
+	SetTempDir("11", gszRsultPath);
+	Local_Dir_Make(gszRsultPath );
+
+	nPid = getpid ();
+
+
+	ProcJobID(szAcptNo, szJobID, szRstCond);
+	fprintf(stdout, "[%s] <%s>처리 완료 결과[%s]\n", szAcptNo, szJobID, szRstCond);
+
+
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit(0);
+}
+
+
+
+
+/*---------------------------------------------------------------*/
+/*	Function  : IsPrivProcErr                                    */
+/*	Action    : 선행작업의 신청내역에 오류가 있는지 조회         */
+/*	Parameter : pAcptNo  : 신청번호                              */
+/*	            pRstCond : 처리결과                              */
+/*	Return    : 오류건수                                         */
+/*---------------------------------------------------------------*/
+int 	IsPrivProcErr (char *pAcptNo
+					  ,char *pRstCond
+					  )
+{
+int 	nBefErrCnt = 0                  ;
+
+	/*-----------------------------------------------------------*/
+	/* 	선행작업의 작업 처리 결과에 오류가 있는지 조회           */
+	/*-----------------------------------------------------------*/
+	if (nBefErrCnt == 0)	{
+		EXEC SQL
+			SELECT  Count(*)
+			  INTO  :nBefErrCnt
+			  FROM  CMR1000
+		     WHERE  CR_AcptNO IN (SELECT  CR_BEFACT
+			 					    FROM  CMR1030
+								   WHERE  CR_AcptNo = :pAcptNo
+								 )
+			   AND  CR_STATUS = '0';
+	}
+
+	/*-----------------------------------------------------------*/
+	/*	선행 작업에 오류가 있다면 관련건도 오류로 SET            */
+	/*		CMR1010.CR_PRCRST = 'BFER'                           */
+	/*-----------------------------------------------------------*/
+	if (nBefErrCnt > 0) {
+		strcpy(pRstCond, "BFER");
+		return 1;
+	}
+
+	return 0;
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : ProcJobID                                        */
+/*	Action    : 처리 단계별 처리 Function Call                   */
+/*  Parameter : pAcptNo  : 신청번호                              */
+/*              pSerNo   : 일련번호                              */
+/*              pJobID   : 처리단계                              */
+/*              pRstCond : 처리결과                              */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+void	ProcJobID	( char *pAcptNo
+					, char *pJobID
+					, char *pRstCond
+					)
+{
+char	szRstCond            [dfRstCode]; /* 처리 결과 받을 변수 */
+
+
+    if (strcmp(pJobID,"SYSANL") == 0) {
+		Process_SYSANL(pAcptNo,pJobID, pRstCond );
+    }
+
+    else
+    if (strcmp(pJobID,"SYSAL") == 0) {
+		Process_SYSAL(pAcptNo, pJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(pJobID,"SYSAR") == 0) {
+		Process_SYSAR(pAcptNo, pJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(pJobID,"SYSCB" ) == 0 ||
+		strcmp(pJobID,"SYSTCB") == 0 ) {
+		if (IsPrivProcErr(pAcptNo, pRstCond) == 0) {
+		    Process_SYSCOM(pAcptNo, pJobID, pRstCond);
+			if (strcmp(pRstCond, "9999") == 0 ||
+				strcmp(pRstCond, "SYS1") == 0 )  return ;
+		}
+    }
+
+    else
+    if (strcmp(pJobID,"SYSDN") == 0) {
+    	Process_SYSDNMV	(pAcptNo,pJobID, szRstCond);
+	    Process_SYSDN	(pAcptNo,pJobID, pRstCond);
+	    
+	    if (strcmp(pRstCond, "0000") != 0) {
+		    sprintf(szRstCond, "%s", pRstCond);
+	    	Process_SYSDNRMV(pAcptNo,pJobID, pRstCond, szRstCond);    	
+	    }
+    }
+
+    else
+    if (strcmp(pJobID,"SYSFMK") == 0) {
+	    Process_SYSFMK(pAcptNo, pJobID,pRstCond);
+    }
+
+    else
+    if (strcmp(pJobID,"SYSPF") == 0) {
+    	Process_SYSPF(pAcptNo,pJobID,pRstCond );
+    	Process_SYSPF(pAcptNo,pJobID,pRstCond );
+	}
+
+    else
+    if (strcmp(pJobID,"SYSFT") == 0) {
+    	Process_SYSFT(pAcptNo,pJobID,pRstCond );
+	}
+
+    else
+    if (strcmp(pJobID,"SYSPMD") == 0) {
+    	Process_SYSPMD(pAcptNo,pJobID,pRstCond );
+	}
+
+    else
+    if (strcmp(pJobID,"SYSUP") == 0) {
+		if (cmp_mid_char(pAcptNo, 5, 2, "60") == 0 ) {
+    		Process_SYSUP60(pAcptNo,pJobID,pRstCond );
+    	}
+    	else {
+    		Process_SYSUP(pAcptNo,pJobID,pRstCond );
+    	}
+	}
+
+    else
+    if (memcmp(pJobID,"SYSDNC",6) == 0) {
+		Process_SYSDNC(pAcptNo, pJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(pJobID,"SYSDL") == 0) {
+		Process_SYSDL(pAcptNo,pJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(pJobID,"SYSMV") == 0) {
+		Process_SYSMV(pAcptNo,pJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(pJobID,"SYSRMV") == 0) {
+		Process_SYSRMV(pAcptNo,pJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(pJobID,"SYSCN") == 0) {
+		Process_SYSCN(pAcptNo,pJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(pJobID,"SYSED") == 0) {
+    	if (cmp_mid_char(pAcptNo, 5, 2, "60") == 0 ) {
+			Process_SYSED60(pAcptNo, pJobID, pRstCond);
+		}
+		else {
+			if (IsPrivProcErr(pAcptNo, pRstCond) == 0) {
+			   Process_SYSED(pAcptNo, pJobID, pRstCond);
+			}
+		}
+    }
+
+    else
+    if (strcmp(pJobID,"SYSTS") == 0) {
+		if (IsPrivProcErr(pAcptNo, pRstCond) == 0) {
+		   Process_SYSED(pAcptNo, pJobID, pRstCond);
+		}
+    }
+
+    else
+    if (strcmp(pJobID,"SYSCED") == 0) {
+	   Process_SYSCED(pAcptNo, pJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(pJobID,"SYSGB") == 0) {
+		 Process_SYSGB(pAcptNo, pJobID, pRstCond);
+
+    }
+
+    else
+    if (strcmp(pJobID,"SYSJAR") == 0) {
+		Process_SYSJAR(pAcptNo, pJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(pJobID,"SYSEFF") == 0) {
+		Process_SYSEFF(pAcptNo, pJobID, pRstCond);
+    }
+
+     else {
+		/*LOG*/sprintf(gszLogMsg,"[%s] <%s>처리대상ID 아님2\n",pAcptNo,pJobID);
+		eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+		return;
+    }
+}
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

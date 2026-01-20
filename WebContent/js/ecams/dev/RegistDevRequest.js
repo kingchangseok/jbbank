@@ -1,0 +1,1543 @@
+var userName 	 	= window.top.userName;
+var userId 		 	= window.top.userId;
+var adminYN 		= window.top.adminYN;
+var userDeptName 	= window.top.userDeptName;
+var userDeptCd 	 	= window.top.userDeptCd;
+var reqCd			= window.top.reqCd;
+var attPath			= window.top.attPath;
+
+var picker 			= new ax5.ui.picker();
+var firstGrid		= new ax5.ui.grid();
+var userGrid		= new ax5.ui.grid();
+var fileGrid		= new ax5.ui.grid();
+
+var firstGridData	= [];
+var userGridData	= [];
+var fileGridData	= [];
+var cboGbnData		= [];
+var cboStaData		= [];
+var cboDocTypeData	= [];
+var cboForeignData	= [];
+var cboReqTypeData	= [];
+var cboConTypeData 	= [];
+var cboGradeData 	= [];
+var cboJobData		= [];
+var treeDeptData	= [];
+var cboDomesticData	= [];
+var wksropen		= '';
+var strReqID		= '';
+var today			= '';
+
+/* 업무팀 관련 변수 */
+var treeObj			= [];
+var treeDeptData	= []; //조직트리 데이터
+var treeSetting = {
+	check: {
+		enable: true,
+		chkboxType: {
+	        "Y": "s",
+	        "N": "s"
+	      }
+	},
+	data: {
+		simpleData: {
+			enable: true
+		}
+	}
+};
+
+/* 관련업무리스트 modal */
+var devReqListModal	= new ax5.ui.modal();
+var devReqStaList   = []; //to modal
+
+/* 사용자검색 modal */
+var devReqUserSelectModal = new ax5.ui.modal();
+var devReqUserSelectGbn	  = ''; //to modal
+var devReqUserSelectArr	  = []; //to modal
+var devReqUserSelectData  = []; //from modal
+var devReqUserSelectFlag  = false; //from modal
+
+/* 파일첨부 변수 */
+var fileUploadModal 	= new ax5.ui.modal();
+var fileIndex			= 0;
+var TotalFileSize 		= 0;
+
+/* 파일업로드 변수 (ComFileUpload에서 사용) */
+var fileGbn 			= 'U';
+var dirGbn 				= '21';
+var subDocPath 			= '';
+var upFiles 			= [];
+var	popCloseFlag 		= false;
+var completeReadyFunc	= false;
+
+/* 대내요청자 검색 modal */
+var userModal	 		= new ax5.ui.modal();
+var popSelItem	 		= []; //from modal
+var userModalCloseFlag  = false; //from modal
+
+firstGrid.setConfig({
+    target: $('[data-ax5grid="firstGrid"]'),
+    sortable: true, 
+    multiSort: true,
+    multipleSelect: false,
+    showLineNumber: true,
+    lineNumberColumnWidth: 40,
+    header: {
+        align: 'center'
+    },
+    body: {
+        onClick: function () {
+        	this.self.clearSelect();
+            this.self.select(this.dindex);
+            firstGrid_Click(this.item);
+        },
+    	onDataChanged: function(){
+    		this.self.repaint();
+    	},
+     	trStyleClass: function () {
+     		if (this.item.baseitem != this.item.cr_itemid) {
+     			return "fontStyle-module";
+     		}
+     	}
+    },
+    columns: [
+        {key: 'CC_REQID', 		label: '요청번호',  		width: '12%',	align: 'left'},
+        {key: 'CC_ENDPLAN', 	label: '처리기간', 			width: '6%',	align: 'center'},
+        {key: 'editorName', 	label: '발행자', 			width: '5%',	align: 'center'},
+        {key: 'testreqyn', 		label: '테스트전담여부', 	 width: '8%',	align: 'center'},
+        {key: 'CM_DEPTNAME', 	label: '부서',				width: '8%',	align: 'left'},
+        {key: 'CC_DOCSUBJ', 	label: '문서제목',   	width: '15%',	align: 'left'},
+        {key: 'CC_DETAILJOBN', 	label: '업무상세명',  	width: '15%',	align: 'left'},
+        {key: 'CC_DETAILSAYU', 	label: '추가업무내용',	width: '31%',	align: 'left'}
+    ]
+});
+
+userGrid.setConfig({
+    target: $('[data-ax5grid="userGrid"]'),
+    sortable: true, 
+    multiSort: true,
+    multipleSelect: false,
+    showLineNumber: true,
+    lineNumberColumnWidth: 40,
+    page: false,
+    header: {
+        align: 'center'
+    },
+    body: {
+        onClick: function () {
+        	this.self.clearSelect();
+            this.self.select(this.dindex);
+        },
+        onDBLClick: function () {
+        	if (this.dindex < 0) return;
+        	confirmDialog.confirm({
+    			title: '삭제 확인',
+    			msg: '담당자를 삭제하시겠습니까?',
+    		}, function(){
+    			if(this.key === 'ok') {
+    				userGrid_dblClick(this.item);
+    			}
+    		});
+        },
+    	onDataChanged: function(){
+    		this.self.repaint();
+    	},
+     	trStyleClass: function () {
+     		if (this.item.baseitem != this.item.cr_itemid) {
+     			return "fontStyle-module";
+     		}
+     	}
+    },
+    columns: [
+        {key: 'cm_deptname', 	label: '부서',  	width: '50%',	align: 'left'},
+        {key: 'cm_username', 	label: '담당자', 	width: '50%',	align: 'left'}
+    ]
+});
+
+fileGrid.setConfig({
+    target: $('[data-ax5grid="fileGrid"]'),
+    sortable: true, 
+    multiSort: true,
+    multipleSelect: false,
+    showLineNumber: true,
+    lineNumberColumnWidth: 40,
+    page: false,
+    header: {
+        align: 'center'
+    },
+    body: {
+        onClick: function () {
+        	this.self.clearSelect();
+            this.self.select(this.dindex);
+        },
+        onDBLClick: function () {
+         	if (this.dindex < 0) return;
+         	
+         	if(this.item.cc_savefile != null && this.item.cc_savefile != undefined && this.item.cc_savefile != '') {
+         		fileDown(attPath+'/'+this.item.cc_savefile, this.item.cc_attfile);
+         	}
+		},
+    	onDataChanged: function(){
+    		this.self.repaint();
+    	}
+    },
+    contextMenu: {
+        iconWidth: 20,
+        acceleratorWidth: 100,
+        itemClickAndClose: false,
+        icons: {
+            'arrow': '<i class="fa fa-caret-right"></i>'
+        },
+        items: [
+            {type: 1, label: "파일삭제"}
+        ],
+        popupFilter: function (item, param) {
+        	fileGrid.clearSelect();
+        	fileGrid.select(Number(param.dindex));
+
+	       	var selIn = fileGrid.selectedDataIndexs;
+	       	if(selIn.length === 0) return;
+	       	 
+        	if (param.item == undefined) return false;
+        	if (param.dindex < 0) return false;  	
+				 
+	        return true;
+        },
+        onClick: function (item, param) {
+        	confirmDialog.confirm({
+    			title: '삭제확인',
+    			msg: '첨부파일을 삭제하시겠습니까?',
+    		}, function(){
+    			if(this.key === 'ok') {
+    				fileDelete();
+    			}
+    		});
+        	
+        	fileGrid.contextMenu.close();
+		}
+	},
+    columns: [
+        {key: 'cc_attfile', 	label: '파일명',  	width: '80%',	align: 'left'},
+        {key: 'cm_username', 	label: '첨부인', 		width: '20%',	align: 'left'}
+    ]
+});
+
+$('[data-ax5select="cboGbn"]').ax5select({
+    options: []
+});
+
+$('[data-ax5select="cboSta"]').ax5select({
+	options: []
+});
+
+$('[data-ax5select="cboDocType"]').ax5select({
+    options: []
+});
+
+$('input.checkbox-pie').wCheck({theme: 'square-inset blue', selector: 'checkmark', highlightLabel: true});
+
+$('#datStD').val(getDate('DATE',0));
+$('#datEdD').val(getDate('DATE',0));
+$('#datStD2').val(getDate('DATE',0));
+$('#datEdD2').val(getDate('DATE',0));
+$('#datePrcDate').val(getDate('DATE',0));
+picker.bind(defaultPickerInfo('basic', 'top'));
+picker.bind(defaultPickerInfo('basic2', 'bottom'));
+picker.bind(defaultPickerInfo('basic21', 'bottom'));
+picker.bind(defaultPickerInfo('basic3', 'bottom'));
+
+$(document).ready(function(){
+	getCodeInfo();
+	getTeamInfoTree();
+	getTeam();
+	getJobCd();
+	
+	today = getDate('DATE',0);
+
+	
+	$('#txtReqNum1').val(getDate('DATE',0).substr(0,4));
+	$('[data-ax5select="cboForeign"]').ax5select('disable');
+	$('#datStD').prop("disabled", true); 
+	$('#datEdD').prop("disabled", true);
+	disableCal(true, 'datStD');
+	disableCal(true, 'datEdD');
+	
+	$('#txtDetail').keyup(function() {
+		$('#lblDetail').text('총 (' + $('#txtDetail').val().length + ')자');
+	});
+	
+	//요청등록일
+	$('#chkReqDate').bind('click', function() {
+		if($('#chkReqDate').is(':checked')) {
+			$('#datStD').prop("disabled", false); 
+			$('#datEdD').prop("disabled", false);
+			disableCal(false, 'datStD');
+			disableCal(false, 'datEdD');
+		}else {
+			$('#datStD').prop("disabled", true); 
+			$('#datEdD').prop("disabled", true);
+			disableCal(true, 'datStD');
+			disableCal(true, 'datEdD');
+		}
+	});
+	
+	//조회
+	$('#btnQry').bind('click', function() {
+		btnQryClick();
+	});
+	
+	//문서유형
+	$('#cboDocType').bind('change', function() {
+		cboDocTypeChange();
+	});	
+	
+	//대외기관
+	$('#cboForeign').bind('change', function() {
+		cboForeignChange();
+	});
+	
+	//개발종료
+	$('#btnComplete').bind('click', function() {
+		btnCompleteClick();
+	});
+	
+	//삭제
+	$('#btnDel').bind('click', function() {
+		btnDelClick();
+	});
+	
+	//등록
+	$('#btnAdd').bind('click', function() {
+		btnAddClick();
+	});
+	
+	//신규등록
+	$('#chkNew').bind('click', function() {
+		chkNewClick();
+	});
+	
+	//파일첨부
+	$('#btnFileAdd').bind('click', function() {
+		btnFileAddClick();
+	});
+	
+	//파일삭제
+	$('#btnFileDel').bind('click', function() {
+		btnFileDelClick();
+	});
+
+	//조치유형
+	$('#cboConType').bind('change', function() {
+		cboConTypeChange();
+	});
+	
+
+	
+	//추가
+	$('#btnAddDevUser').bind('click', function() {
+		devReqUserSelectArr = clone(userGridData);
+		setTimeout(function() {
+			devReqUserSelectModal.open({
+				width: 500,
+				height: 650,
+				iframe: {
+					method: "get",
+					url: "../modal/dev/DevReqUserSelectModal.jsp"
+				},
+				onStateChanged: function () {
+					if (this.state === "open") {
+						mask.open();
+					}else if (this.state === "close") {
+						console.log('[DevReqUserSelectModal close] ==>', devReqUserSelectFlag, devReqUserSelectData);
+						if(devReqUserSelectFlag) {
+							userGridData = clone(devReqUserSelectData);
+						}
+						userGrid.setData(userGridData);
+						
+						mask.close();
+					}
+				}
+			});
+		}, 200);
+	});
+	
+	//대내문서번호
+	$('#txtDoc').bind('keyup', function() {
+		$('#txtHandlerDocNum').val($('#txtDoc').val());
+	});
+	
+	//대내요청자
+	$('#txtCaller1').bind('click', function() {
+		txtCaller1Click();
+	});
+	
+	$('#txtCaller1').bind('keypress', function(event){
+		if(event.keyCode==13) {
+			txtCaller1Click();
+		}
+	});
+	
+	$('#datStD2').bind('propertychange change keyup paste input', function() {
+		var startDay = $("#datStD2").val();
+		var endDay = $("#datEdD2").val();
+		getHoliDayAll(startDay,endDay);
+	});
+	
+	$('#datEdD2').bind('propertychange change keyup paste input', function() {
+		var startDay = $("#datStD2").val();
+		var endDay = $("#datEdD2").val();
+		getHoliDayAll(startDay,endDay);
+	});
+	
+});
+
+function getHoliDayAll(val1, val2) {
+	var data = new Object();
+	data = {
+		startDay : replaceAllString(val1,'/',''),
+		endDay : replaceAllString(val2,'/',''),
+		requestType	: 'getHoliDayAll'
+	}
+	var ajaxReturnData = ajaxCallWithJson('/webPage/ecmm/Cmm1000Servlet', data, 'json');
+	$('#txtDevDate').val(ajaxReturnData);
+}
+
+function getCodeInfo() {
+	var codeInfos = getCodeInfoCommon([
+		new CodeInfoOrdercd('DOCTYPE','','N','3',''),
+		new CodeInfoOrdercd('FOREIGN','','N','3',''),
+		new CodeInfoOrdercd('REQTYPE','','N','3',''),
+		new CodeInfoOrdercd('CONTYPE','','N','3',''),
+		new CodeInfoOrdercd('JOBGRADE','','N','3','')
+	]);
+	
+	cboDocTypeData = codeInfos.DOCTYPE;
+	$('[data-ax5select="cboDocType"]').ax5select({
+		options: injectCboDataToArr(cboDocTypeData, 'cm_micode' , 'cm_codename')
+	});
+	
+	cboForeignData = codeInfos.FOREIGN;
+	$('[data-ax5select="cboForeign"]').ax5select({
+		options: injectCboDataToArr(cboForeignData, 'cm_micode' , 'cm_codename')
+	});
+	
+	cboReqTypeData = codeInfos.REQTYPE;
+	$('[data-ax5select="cboReqType"]').ax5select({
+		options: injectCboDataToArr(cboReqTypeData, 'cm_micode' , 'cm_codename')
+	});
+	
+	cboConTypeData = codeInfos.CONTYPE;
+	$('[data-ax5select="cboConType"]').ax5select({
+		options: injectCboDataToArr(cboConTypeData, 'cm_micode' , 'cm_codename')
+	});
+	
+	cboGradeData = codeInfos.JOBGRADE;
+	$('[data-ax5select="cboGrade"]').ax5select({
+		options: injectCboDataToArr(cboGradeData, 'cm_micode' , 'cm_codename')
+	});
+	
+	cboGbnData = [
+		{cm_codename : "전체목록", cm_micode : "00"},
+		{cm_codename : "개인목록", cm_micode : "01"}
+	]
+	$('[data-ax5select="cboGbn"]').ax5select({
+		options: injectCboDataToArr(cboGbnData, 'cm_micode' , 'cm_codename')
+	});
+	$('[data-ax5select="cboGbn"]').ax5select("setValue", '01', true);
+	
+	cboStaData = [
+		{cm_codename : "진행중목록", cm_micode : "00"},
+		{cm_codename : "개발요청종료건", cm_micode : "01"}
+	]
+	$('[data-ax5select="cboSta"]').ax5select({
+		options: injectCboDataToArr(cboStaData, 'cm_micode' , 'cm_codename')
+	});
+	
+	getREQList();
+}
+
+function getTeamInfoTree() {
+	var data = new Object();
+	data = {
+		chkcd : false,
+		itsw : false,
+		requestType	: 'getTeamInfoTree_zTree'
+	}
+	ajaxAsync('/webPage/common/TeamInfoServlet', data, 'json',successGetTreeInfo);
+}
+
+function successGetTreeInfo(data) {
+	/*$('#lstDept').empty(); //리스트 초기화
+	var addId = null;
+	var liStr = null;
+	
+	treeDeptData = data;
+	
+	if(treeDeptData == null || treeDeptData.length < 0) return;
+	
+	liStr  = '';
+	treeDeptData.forEach(function(treeDeptData, Index) {
+		addId = treeDeptData.cm_deptcd;
+		liStr += '<li class="list-group-item dib width-50" style="min-width: 200px;">';
+		liStr += '<div class="margin-3-top">';
+		liStr += '	<input type="checkbox" class="checkbox-dept" id="chkDept'+addId+'" data-label="'+treeDeptData.cm_deptname+'"  value="'+treeDeptData.cm_deptcd+'" />';
+		liStr += '</div>';
+		liStr += '</li>';
+	});
+	$('#lstDept').html(liStr);
+	
+	$('input.checkbox-dept').wCheck({theme: 'square-inset blue', selector: 'checkmark', highlightLabel: true});*/
+	
+	treeDeptData = data;
+	$.fn.zTree.init($("#treeDept"), treeSetting, data); //초기화
+	treeObj = $.fn.zTree.getZTreeObj("treeDept");
+	treeObj.expandAll(true);
+}
+
+function getTeam() {
+	var data = new Object();
+	data = {
+		SelMsg : 'SEL',
+		cm_useyn : 'N',
+		requestType	: 'getTeam'
+	}
+	ajaxAsync('/webPage/common/TeamInfoServlet', data, 'json',successGetTeam);
+}
+
+function successGetTeam(data) {
+	cboDomesticData = data;
+}
+
+function getJobCd() {
+	var data = new Object();
+	data = {
+		SelMsg : 'SEL',
+		closeYn : 'N',
+		requestType	: 'getJobCd'
+	}
+	ajaxAsync('/webPage/common/CodeInfoServlet', data, 'json',successGetJobCd);
+}
+
+
+function getSrOpen() {
+	var data = new Object();
+	data = {
+		SelMsg : 'SEL',
+		closeYn : 'N',
+		requestType	: 'getSrOpen'
+	}
+	ajaxAsync('/webPage/common/CodeInfoServlet', data, 'json',successGetSrOpen);
+}
+
+
+function successGetJobCd(data) {
+	cboJobData = data;
+	$('[data-ax5select="cboJob"]').ax5select({
+		options: injectCboDataToArr(cboJobData, 'cm_jobcd' , 'cm_jobname')
+	});
+}
+
+
+function successGetSrOpen(data) {
+
+	console.log("successGetSrOpen today> ", today);
+	console.log("successGetSrOpen data> ", data);
+	
+	wksropen = data;
+	// SR 오픈시 버튼 비활성화
+	
+	if(today >= wksropen) {
+		$('#btnAdd').prop("disabled", true);
+		$('#btnComplete').prop("disabled", true);
+		$('#btnDel').prop("disabled", true);
+//		$('#chkNew').prop("disabled", true);
+	}else{
+		$('#btnAdd').prop("disabled", false);
+		$('#btnComplete').prop("disabled", false);
+		$('#btnDel').prop("disabled", false);
+//		$('#chkNew').prop("disabled", false);
+	}
+
+	selectedGridItem = firstGrid.list[firstGrid.selectedDataIndexs];
+	
+	/*
+	if(selectedGridItem.CC_SRREQID == "N"){
+		$('#btnAdd').prop("disabled", false);
+		$('#btnComplete').prop("disabled", false);
+		$('#btnDel').prop("disabled", false);
+	}else{
+		$('#btnAdd').prop("disabled", true);
+		$('#btnComplete').prop("disabled", true);
+		$('#btnDel').prop("disabled", true);
+	}
+	*/
+	
+	if(today >= wksropen && selectedGridItem.CC_ACTTYPE == "01"){
+		$('#btnAdd').prop("disabled", true);
+		$('#btnComplete').prop("disabled", true);
+		$('#btnDel').prop("disabled", true);
+	}else{
+		$('#btnAdd').prop("disabled", false);
+		$('#btnComplete').prop("disabled", false);
+		$('#btnDel').prop("disabled", false);
+		$('#chkNew').prop("disabled", false);
+	}
+}
+
+
+
+function btnQryClick() {
+	var stDate = replaceAllString($('#datStD').val().trim(),'/','')
+	var edDate = replaceAllString($('#datEdD').val().trim(),'/','');
+	
+	if($('#chkReqDate').is(':checked')) {
+		if(stDate > edDate) {
+			dialog.alert('올바른 기간을 선택해주십시오.');
+			return;
+		}
+	}
+	
+	getREQList();
+}
+
+function getREQList() {
+	var stDate = '';
+	var edDate = '';
+	
+	if($('#chkReqDate').is(':checked')) {
+		stDate = $('#datStD').val().trim();
+		edDate = $('#datEdD').val().trim();
+	}
+	
+	var data = new Object();
+	data = {
+		status : getSelectedVal('cboSta').cm_micode,
+		UserID : userId,
+		cboGbn : getSelectedVal('cboGbn').cm_micode,
+		datStD : stDate,
+		datEdD : edDate,
+		DocType : '00',
+		requestType	: 'getREQList'
+	}
+	$('[data-ax5grid="firstGrid"] [data-ax5grid-container="root"] [data-ax5grid-container="body"]').append(loading_div);
+	$(".loding-div").show();
+	ajaxAsync('/webPage/ecmc/Cmc0400Servlet', data, 'json',successGetREQList);
+}
+
+function successGetREQList(data) {
+	$(".loding-div").remove();
+	
+	if(data != null && data != undefined) {
+		if(typeof data == 'string' && data.indexOf('ERROR') > -1) {
+			dialog.alert(data.substr(5));
+			return;
+		}
+	}
+	
+	firstGridData = data;
+	firstGrid.setData(firstGridData);
+	
+	if(firstGridData.length == 0) {
+		dialog.alert('검색결과가 없습니다.');
+	}
+	
+	initCbobox('M');
+	
+	$('#chkNew').wCheck('check',true);
+	chkNewClick();
+	$('#cboReqNum1').show();
+	$('#txtReqNum0').show();
+	$('#txtReqNum1').show();
+	$('#txtReqNum3').show();
+	
+	$('#labReq01').show();
+	$('#labReq02').show();
+	$('#labReq03').show();
+	
+	$('#txtReqNum2').hide();
+
+}
+
+function initCbobox(gbn) {
+	fileGridData = [];
+	fileGrid.setData([]);
+	
+	userGridData = [];
+	userGrid.setData([]);
+	
+	$('#txtDoc').val('');
+	$('#txtCaller0').val('');
+	$('#txtCaller1').val('');
+	$('#txtCaller0ToolTip').attr('tooltip', '');
+	$('#txtCaller1ToolTip').attr('tooltip', '');
+	$('#txtTitleDetail').val('');
+	if(cboJobData.length > 0) $('[data-ax5select="cboJob"]').ax5select("setValue", cboJobData[0].value, true);
+	if(cboConTypeData.length > 0) $('[data-ax5select="cboConType"]').ax5select("setValue", cboConTypeData[0].value, true);
+	if(cboGradeData.length > 0) $('[data-ax5select="cboGrade"]').ax5select("setValue", cboGradeData[0].value, true);
+	if(cboReqTypeData.length > 0) $('[data-ax5select="cboReqType"]').ax5select("setValue", cboReqTypeData[0].value, true);
+	if(cboForeignData.length > 0) $('[data-ax5select="cboForeign"]').ax5select("setValue", cboForeignData[0].value, true);
+	$('#txtDetail').val('');
+	$('#lblDetail').text('총 (' + $('#txtDetail').val().length + ')자');
+	$('#txtTitle').val('');
+	$('#txtCaller2').val('');
+	$('#txtHandlerDocNum').val('');
+	$('#datStD2').val(getDate('DATE',0));
+	$('#datEdD2').val(getDate('DATE',0));
+	picker.bind(defaultPickerInfo('basic2', 'bottom'));
+	picker.bind(defaultPickerInfo('basic21', 'bottom'));
+	$('#txtDevDate').val('0');
+	
+	if(gbn == 'M') {
+		for(var i=0; i<treeDeptData.length; i++ ) {
+			$('#chkDept'+treeDeptData[i].cm_deptcd).wCheck('check', false);
+			$('#chkTestReqYN').wCheck('check', false);
+		}
+	}
+}
+
+function firstGrid_Click(selItem) {
+	console.log('[firstGrid_Click] ==>', selItem);
+	
+	if(selItem.CC_DOCTYPE == '01') {
+		$('[data-ax5select="cboDocType"]').ax5select("setValue", cboDocTypeData[0].value, true);
+	}else {
+		$('[data-ax5select="cboDocType"]').ax5select("setValue", cboDocTypeData[1].value, true);
+	}
+	
+	cboDocTypeChange(); //대내/대외 문서에 따라 콤포넌트들 변화하는 것 셋팅
+	
+	//그리드 선택시 수정못하게할 콤포넌트들만 셋팅
+	if(!selItem.__disable_selection__) {
+		$('[data-ax5select="cboDocType"]').ax5select('disable');
+		$('[data-ax5select="cboForeign"]').ax5select('disable');
+		$('#txtCaller1').prop("disabled", false);
+		$('#txtCaller2').prop("disabled", false);
+	}
+	
+	userGridData = [];
+	userGrid.setData([]);
+	fileGridData = [];
+	fileGrid.setData([]);
+	
+	//선택된 아이템 status 값이 9, 3 이면 종료, 수정버튼 비활성화
+	if(selItem.CC_STATUS == '9' || selItem.CC_STATUS == '3') {
+		$('#btnAdd').prop("disabled", true);
+		$('#btnComplete').prop("disabled", true);
+		$('#btnDel').prop("disabled", true);
+	}else {
+		$('#btnAdd').prop("disabled", false);
+		$('#btnComplete').prop("disabled", false);
+	}
+	
+	//선택된 아이템 status 값이 0이 아닐때는 삭제버튼 비활성화
+	if(selItem.CC_STATUS != '0') {
+		$('#btnDel').prop("disabled", true);
+	}else {
+		$('#btnDel').prop("disabled", false);
+	}
+	
+	
+	$('#btnAdd').text('수정');
+	
+	strReqID = selItem.CC_REQID;
+	
+	$('#chkNew').wCheck('check',false);
+	chkNewClick();
+	$('#txtReqNum2').val(selItem.CC_REQID);
+	
+	$('#txtTitle').val(selItem.CC_DOCSUBJ); //문서제목
+	$('#datePrcDate').val(selItem.CC_ENDPLAN); //처리기간
+	$('#txtDetail').val(selItem.CC_DETAILSAYU); //추가업무내용
+	$('#lblDetail').text('총 (' + $('#txtDetail').val().length + ')자');
+	$('#txtDoc').val(selItem.CC_DOCNUM); //문서유형-문서번호
+	for(var i=0; i<cboDomesticData.length; i++) {
+		if(selItem.CC_DEPT1 == cboDomesticData[i].cm_deptcd) {
+			$('#txtCaller0').val(cboDomesticData[i].cm_deptname);
+			$('#txtCaller0ToolTip').attr('tooltip', cboDomesticData[i].cm_deptcd);
+		}
+	}
+	
+	$('#txtCaller0').val(selItem.CM_DEPTNAME);
+	$('#txtCaller0ToolTip').attr('tooltip', selItem.CC_DEPT1);
+	
+	$('#txtCaller1').val(selItem.CC_REQUSER1FULL); //대내부점요청자 
+	$('#txtCaller1ToolTip').attr('tooltip', selItem.CC_REQUSER1);
+	
+	$('#txtCaller2').val(selItem.CC_REQUSER2); //대외기관 요청자
+	$('#txtTitleDetail').val(selItem.CC_DETAILJOBN); //업무상세명
+	$('#txtHandlerDocNum').val(selItem.CC_DOCNUM2); //주관부서문서번호
+	$('#datStD2').val(selItem.CC_DEVSTDT); //개발기간 
+	$('#datEdD2').val(selItem.CC_DEVEDDT);
+	$('#txtDevDate').val(selItem.CC_DEVPERIOD); //개발소요기간
+
+	$('#chkTestReqYN').wCheck('check',false);
+	$('#txtTestPassCd').val('');
+	if(selItem.testreqyn === 'Y') $('#chkTestReqYN').wCheck('check',true);
+	else $('#txtTestPassCd').val(selItem.TESTPASS_NM); //테스트생략코드
+
+	
+	//업무팀
+	treeObj.checkAllNodes(false);
+	var tmpArr = [];
+	if(selItem.RECVPART != null && selItem.RECVPART != undefined && selItem.RECVPART != '' ) {
+		tmpArr = selItem.RECVPART.split(',');
+		tmpArr.forEach(function(arrItem, indexP) {
+			var node = treeObj.getNodeByParam('id', arrItem);
+			if(node !== null && !node.isParen) {
+				treeObj.selectNode(node);
+				treeObj.checkNode(node, true, true);
+			}
+		});
+	}
+	
+	$('[data-ax5select="cboDocType"]').ax5select("setValue", selItem.CC_DOCTYPE, true); //문서유형
+	
+	tmpArr = null;
+	tmpArr = selItem.CC_REQUSER3.split(',');
+	
+	var tmpData = null;
+	var tmpArr2 = null;
+	for(var i=0; i<tmpArr.length; i++) {
+		tmpArr2 = tmpArr[i].split('^');
+		tmpData = new Object();
+		tmpData.cm_project = tmpArr2[0];
+		tmpData.cm_deptname = tmpArr2[1];
+		tmpData.cm_userid = tmpArr2[2];
+		tmpData.cm_username = tmpArr2[3];
+		tmpData.cm_posname = tmpArr2[4];
+		userGridData.push(tmpData);
+		tmpData = null;
+	}
+	userGrid.setData(userGridData);
+	
+	if(selItem.fileinfos != '' && selItem.fileinfos != null && selItem.fileinfos != undefined) {
+		tmpArr = null;
+		tmpArr = selItem.fileinfos.split('$');
+		
+		var tmpData = null;
+		tmpArr2 = null;
+		for(var i=0; i<tmpArr.length; i++) {
+			tmpArr2 = tmpArr[i].split('^');
+			tmpData = new Object();
+			tmpData.cc_id = tmpArr2[0];
+			tmpData.subid = tmpArr2[1];
+			tmpData.cc_subreq = tmpArr2[2];
+			tmpData.cc_seqno = tmpArr2[3];
+			tmpData.cc_savefile = tmpArr2[4];
+			tmpData.cc_attfile = tmpArr2[5];
+			tmpData.cc_lastdt = tmpArr2[6];
+			tmpData.cc_editor = tmpArr2[7];
+			tmpData.cc_reqcd = tmpArr2[8];
+			tmpData.cm_username = tmpArr2[9];
+			fileGridData.push(tmpData);
+			tmpData = null;
+		}
+		fileGrid.setData(fileGridData);
+	}
+	
+	$('[data-ax5select="cboJob"]').ax5select("setValue", selItem.CC_JOBCD, true); //업무
+	$('[data-ax5select="cboGrade"]').ax5select("setValue", selItem.CC_JOBDIF, true); //업무난이도
+	$('[data-ax5select="cboConType"]').ax5select("setValue", selItem.CC_ACTTYPE, true); //조치유형
+	$('[data-ax5select="cboForeign"]').ax5select("setValue", selItem.CC_DEPT2, true); //대외기관
+	$('[data-ax5select="cboReqType"]').ax5select("setValue", selItem.CC_REQTYPE, true); //요청유형
+}
+
+function userGrid_dblClick(selItem) {
+	userGrid.removeRow(userGrid.selectedDataIndexs[0]);
+	dialog.alert('삭제완료');
+	userGridData = userGrid.getList();
+}
+
+function btnCompleteClick() {
+	var gridSelectedIndex = firstGrid.selectedDataIndexs;
+	var gridselectedItem = firstGrid.list[gridSelectedIndex];
+	
+	if(gridSelectedIndex < 0) return;
+	
+	if(gridselectedItem != undefined && gridselectedItem.CC_EDITOR != userId) {
+		dialog.alert('작성자만 종료 가능합니다.');
+		return;
+	}
+	
+	var data = new Object();
+	data = {
+		userID : userId,
+		reqID : gridselectedItem.CC_REQID,
+		requestType	: 'statusUpdt'
+	}
+	console.log('[statusUpdt] ==>', data);
+	ajaxAsync('/webPage/ecmc/Cmc0400Servlet', data, 'json',successStatusUpdt);
+}
+	
+function successStatusUpdt(data) {
+	if(data != null && data != undefined) {
+		if(typeof data == 'string' && data.indexOf('ERROR') > -1) {
+			dialog.alert(data.substr(5));
+			return;
+		}
+	}
+	
+	devReqStaList = data;
+	if(devReqStaList != null && devReqStaList != undefined) {
+		if(devReqStaList.length == 0) {
+			diallog.alert('종료 되었습니다.');
+			return;
+		}else {
+			setTimeout(function() {
+				devReqListModal.open({
+					width: 400,
+					height: 650,
+					iframe: {
+						method: "get",
+						url: "../modal/dev/DevReqListModal.jsp"
+					},
+					onStateChanged: function () {
+						if (this.state === "open") {
+							mask.open();
+						}else if (this.state === "close") {
+							mask.close();
+						}
+					}
+				});
+			}, 200);
+		}
+	}
+}
+
+function btnDelClick() {
+	var gridSelectedIndex = firstGrid.selectedDataIndexs;
+	var gridselectedItem = firstGrid.list[gridSelectedIndex];
+	
+	if(gridSelectedIndex < 0) return;
+	
+	if(gridselectedItem != undefined && gridselectedItem.CC_EDITOR != userId) {
+		dialog.alert('작성자만 삭제 가능합니다.');
+		return;
+	}
+	
+	confirmDialog.confirm({
+		title: '확인',
+		msg: '개발요청서를 삭제하시겠습니까?',
+	}, function(){
+		if(this.key === 'ok') {
+			var gridSelectedIndex = firstGrid.selectedDataIndexs;
+			var gridselectedItem = firstGrid.list[gridSelectedIndex];
+			
+			var delObj = new Object();
+			delObj.delREQinfo = gridselectedItem.CC_REQID;
+			delObj.delStrUserID = userId;
+			
+			var data = new Object();
+			data = {
+				delREQ : delObj,
+				requestType	: 'delREQinfo'
+			}
+			console.log('[delREQinfo] ==>', data);
+			ajaxAsync('/webPage/ecmc/Cmc0400Servlet', data, 'json',successDelREQinfo);
+		}
+	});
+}
+
+function successDelREQinfo(data) {
+	if(data != null && data != undefined) {
+		if(typeof data == 'string' && data.indexOf('ERROR') > -1) {
+			dialog.alert(data.substr(5));
+			return;
+		}
+	}
+	
+	if(data == 'Y') {
+		dialog.alert('폐기를 완료하였습니다.');
+		$('#chkNew').wCheck('check',true);
+		chkNewClick();
+		btnQryClick();
+	}else {
+		dialog.alert('관련된 업무지시서가 모두 종료되지 않았습니다.');
+		return;
+	}
+}
+
+function btnAddClick() {
+	var gridSelectedIndex = firstGrid.selectedDataIndexs;
+	var gridselectedItem = firstGrid.list[gridSelectedIndex];
+	
+	if(gridselectedItem != undefined && gridselectedItem.CC_EDITOR != userId) {
+		if($('#btnAdd').text() == '수정') {
+			dialog.alert('작성자만 수정이 가능합니다.');
+			return;
+		}
+	}
+	
+	if($('#txtDoc').val().length == 0) {
+		dialog.alert("문서번호를 입력 후 등록하십시오.");
+		return;
+	}
+	
+	if($('#txtTitle').val().length == 0) {
+		dialog.alert("문서제목을 입력 후 등록하십시오.");
+		return;
+	}
+	
+	if(getSelectedIndex('cboDocType') == 0 && $('#txtCaller1').val().length == 0) {
+		dialog.alert("대내-부점 요청자를 입력 후 등록하십시오.");
+		return;
+	}
+	
+	if(userGridData.length == 0) {
+		dialog.alert("주관부서와 주관부서 담당자를 지정하십시오.");
+		return;
+	}
+	
+	if($('#txtHandlerDocNum').val().length == 0) {
+		dialog.alert("주관부서-문서번호를 입력 후 등록하십시오.");
+		return;
+	}
+	
+	if($('#txtTitleDetail').val().length == 0) {
+		dialog.alert("업무상세명을 입력 후 등록하십시오.");
+		return;
+	}
+	
+	if(getSelectedIndex('cboJob') == 0) {
+		dialog.alert("업무를 선택 후 등록하십시오.");
+		return;
+	}
+	
+	var stDate = replaceAllString($('#datStD2').val().trim(),'/','');
+	var edDate = replaceAllString($('#datEdD2').val().trim(),'/','');
+	if(stDate > edDate) {
+		dialog.alert("날짜를 올바르게 입력하십시오.");
+		return;
+	}
+	
+	if($('#txtDetail').val().length == 0) {
+		dialog.alert("추가업무내용을 입력 후 등록하십시오.");
+		return;
+	}
+	
+	if($('#txtDetail').val().length < 200) {
+		dialog.alert("추가업무내용은 200자 이상입력하셔야 합니다.");
+		return;
+	}
+	
+	if(fileGridData.length == 0) {
+		dialog.alert("파일을 첨부한 후 등록하십시오.");
+		return;
+	}
+	
+	if(getSelectedIndex('cboDocType') == 1 && getSelectedIndex('cboForeign') == 0) {
+		dialog.alert("대외-기관을 선택 후 등록하십시오.");
+		return;
+	}
+	
+	if(getSelectedIndex('cboDocType') == 1 && $('#txtCaller2').val().length == 0) {
+		dialog.alert("대외-기관 요청자를 입력 후 등록하십시오.");
+		return;
+	}
+	
+	var checkedNodes= treeObj.getCheckedNodes(true);
+	if(checkedNodes.length === 0) {
+		dialog.alert('수신부서/파트 선택한 후 등록하십시오.',function(){});
+		return;
+	}
+	
+	var teamList = [];
+	var tmpData = null;
+	checkedNodes.forEach(function(item, index) {
+		if(item.pId  !== null) {
+			tmpData = new Object();
+			tmpData.cm_deptcd = item.cm_deptcd;
+			tmpData.cm_userid = userId;
+			teamList.push(tmpData);
+			tmpData = null;
+		}
+	});
+	
+	if($('#cboReqNum1').val().length == 0 && $('#chkNew').is(':checked')) {
+		dialog.alert("요청번호 입력 후 등록하십시오.");
+		return;
+	}
+	
+	var tmpObj = new Object();
+	tmpObj.CC_DOCTYPE = getSelectedVal('cboDocType').cm_micode;
+    tmpObj.CC_DOCNUM = $('#txtDoc').val();
+    tmpObj.CC_DOCSUBJ = $('#txtTitle').val();
+    tmpObj.CC_DEPT1 = $('#txtCaller0ToolTip').attr('tooltip');
+    tmpObj.CC_REQUSER1 = $('#txtCaller1ToolTip').attr('tooltip');
+    tmpObj.CC_DEPT2 = getSelectedVal('cboForeign').cm_micode;
+    tmpObj.CC_REQUSER2 = $('#txtCaller2').val();
+    tmpObj.CC_DOCNUM2 = $('#txtHandlerDocNum').val();
+    tmpObj.CC_DETAILJOBN = $('#txtTitleDetail').val();
+    tmpObj.CC_REQTYPE = getSelectedVal('cboReqType').cm_micode;
+    tmpObj.CC_ENDPLAN = $('#datePrcDate').val().trim();
+    tmpObj.CC_JOBCD = getSelectedVal('cboJob').cm_jobcd;
+    tmpObj.CC_ACTTYPE = getSelectedVal('cboConType').cm_micode;
+    tmpObj.CC_JOBDIF = getSelectedVal('cboGrade').cm_micode;
+    tmpObj.CC_DEVSTDT = $('#datStD2').val().trim();
+    tmpObj.CC_DEVEDDT = $('#datEdD2').val().trim();
+    tmpObj.CC_DETAILSAYU = $('#txtDetail').val();
+    tmpObj.CC_EDITOR = userId;
+    tmpObj.CC_ETTEAM = userDeptCd;
+    tmpObj.CC_DEVPERIOD = $('#txtDevDate').val();
+	
+    var reqType = '';
+	if( $('#chkNew').is(':checked') ) {
+		reqType = 'setREQInfo';
+		tmpObj.CC_REQID = $('#txtReqNum0').val()+"-"+$('#cboReqNum1').val()+"-"+getDate('DATE',0).substr(0,4);
+	}else {
+		reqType = 'setREQupdt';
+		tmpObj.CC_REQID = gridselectedItem.CC_REQID;
+	}
+	
+	var data = new Object();
+	data = {
+		etcData : tmpObj,
+		TeamList : teamList,
+		UserList : userGridData,
+		tmpRunnerList : null,
+		requestType	: reqType
+	}
+	console.log('['+reqType+'] ==>', data);
+	
+	if(reqType == 'setREQInfo') ajaxAsync('/webPage/ecmc/Cmc0400Servlet', data, 'json',successSetREQInfo);
+	else ajaxAsync('/webPage/ecmc/Cmc0400Servlet', data, 'json',successSetREQupdt);
+}
+
+function successSetREQInfo(data) {
+	if(data != null && data != undefined) {
+		if(typeof data == 'string' && data.indexOf('ERROR') > -1) {
+			dialog.alert(data.substr(5));
+			return;
+		}
+	}
+	
+	strReqID = data;
+	if(strReqID != null && strReqID != '' && strReqID != undefined && strReqID.length > 0) {
+		dialog.alert('등록되었습니다.');
+		
+		if(fileGridData.length > 0) {
+			//파일업로드
+			startFileupload();
+		}else {
+			$('#chkNew').wCheck('check',true);
+			chkNewClick();
+			btnQryClick();
+		}
+	}else {
+		dialog.alert('등록이 실패되었습니다.');
+		return;
+	}
+}
+
+function successSetREQupdt(data) {
+	if(data != null && data != undefined) {
+		if(typeof data == 'string' && data.indexOf('ERROR') > -1) {
+			dialog.alert(data.substr(5));
+			return;
+		}
+	}
+	
+	strReqID = data;
+	if(strReqID != null && strReqID != '' && strReqID != undefined && strReqID.length > 0) {
+		dialog.alert('수정되었습니다.');
+		
+		// status가 0이 아닌 아이템(그리드에서 선택된)선택했을때 비활성화됐던 삭제버튼 다시 활성화시키기
+		$('#btnDel').prop("disabled", false);
+		
+		if(fileGridData.length > 0) {
+			//파일업로드
+			startFileupload();
+		}else {
+			$('#chkNew').wCheck('check',true);
+			chkNewClick();
+			btnQryClick();
+		}
+	}else {
+		dialog.alert('수정이 실패되었습니다.');
+		return;
+	}
+}
+
+function chkNewClick() {
+	var checkSw = $('#chkNew').is(':checked');
+
+	if(checkSw) {
+		initCbobox('M');
+		
+		//그리드 선택시 비활성화됐던 콤포넌트들 다시 활성화
+		$('[data-ax5select="cboDocType"]').ax5select("setValue", cboDocTypeData[0].value, true);
+		$('[data-ax5select="cboDocType"]').ax5select('enable');
+		$('#txtCaller1').prop("disabled", false);
+		$('#txtCaller2').prop("disabled", false);
+		
+		cboDocTypeChange();
+		
+		$('#btnAdd').text('등록');
+		$('#btnAdd').prop("disabled", false);
+		$('#btnComplete').prop("disabled", true);
+		$('#btnDel').prop("disabled", true);
+
+		userGridData = [];
+		userGrid.setData([]);
+		
+		if(treeObj != null && treeObj != undefined && treeObj.length != 0) {
+			treeObj.checkAllNodes(false);
+		}
+		
+		$('#txtReqNum2').hide();
+		
+		$('#divCboReqNum1').show();
+		$('#txtReqNum0').show();
+		$('#divTxtReqNum1').show();
+		$('#divTxtReqNum3').show();
+		
+		$('#labReq01').show();
+		$('#labReq02').show();
+		$('#labReq03').show();
+		
+		$('#divReqNum').css('width','25%');
+	}else {
+		$('#txtReqNum0').val('요청');
+		$('#cboReqNum1').val('');
+		$('#txtReqNum1').val($('#txtReqNum1').val());
+		$('#txtReqNum3').val('일련번호');
+		
+		$('#txtReqNum2').show();
+		
+		$('#txtReqNum0').hide();
+		$('#divCboReqNum1').hide();
+		$('#divTxtReqNum1').hide();
+		$('#divTxtReqNum3').hide();
+		$('#labReq01').hide();
+		$('#labReq02').hide();
+		$('#labReq03').hide();
+		
+		$('#divReqNum').css('width','50%');
+	}
+	
+	getSrOpen();
+}
+
+function btnFileDelClick() {
+	var gridSelectedIndex = fileGrid.selectedDataIndexs;
+	var gridselectedItem = fileGrid.list[gridSelectedIndex];
+	
+	if(gridselectedItem == null || gridselectedItem == undefined || gridselectedItem.length == 0) {
+		dialog.alert('선택된 첨부파일이 없습니다.');
+		return;
+	}
+
+	confirmDialog.confirm({
+		title: '삭제확인',
+		msg: '첨부파일을 삭제하시겠습니까?',
+	}, function(){
+		if(this.key === 'ok') {
+			fileDelete();
+		}
+	});
+}
+
+function fileDelete() {
+	var selItem = fileGrid.list[fileGrid.selectedDataIndexs[0]];
+	if(selItem.newFile) {
+		fileGrid.removeRow(fileGrid.selectedDataIndexs[0]);
+		fileGridData = fileGrid.getList();
+	}else {
+		if(selItem.cc_editor != userId) {
+			dialog.alert('작성자만 삭제 가능합니다.');
+			return;
+		}else {
+			fileGrid.removeRow(fileGrid.selectedDataIndexs[0]);
+			fileGridData = fileGrid.getList();
+			
+			var data = new Object();
+			data = {
+				Id : selItem.cc_id,
+				ReqCd : reqCd,
+				seqNo : selItem.cc_seqno,
+				requestType	: 'delFile'
+			}
+			var ajaxReturnData = ajaxCallWithJson('/webPage/ecmc/Cmc0010Servlet', data, 'json');
+			if(ajaxReturnData != null && ajaxReturnData != undefined) {
+				if(typeof ajaxReturnData == 'string' && ajaxReturnData.indexOf('ERROR') > -1) {
+					dialog.alert(ajaxReturnData.substr(5));
+					return;
+				}
+			}
+			
+			dialog.alert('삭제완료');
+			btnQryClick();
+		}
+	}
+}
+
+function btnFileAddClick() {
+	if($("#file"+fileIndex).val() != "" && $("#file"+fileIndex).val() != "null"){
+		fileIndex++;
+		$('#fileSave').append('<input type="file" id="file'+fileIndex+'" name="file'+fileIndex+'" onchange="fileChange(\'file'+fileIndex+'\')" accept-charset="UTF-8" multiple="multiple" />');
+	}
+	$("#file"+fileIndex).click();
+}
+
+function fileChange(file) {
+	var jqueryFiles = $("#"+file).get(0);
+	var fileSizeArr = [' KB', ' MB', ' GB'];
+	var spcChar = "{}<>?|~`!@#$%^&*+\"'\\/";
+	
+	if (jqueryFiles.files && jqueryFiles.files[0]) { 
+		var fileCk = true;
+		
+		for(var i=0; i<jqueryFiles.files.length; i++){
+			var sizeCount = 0;
+			var size = jqueryFiles.files[i].size/1024; // Byte, KB, MB, GB
+			while(size > 1024 && sizeCount < 2){
+				size = size/1024;
+				sizeCount ++;
+			}
+			size = Math.round(size*10)/10.0 + fileSizeArr[sizeCount];
+			var sizeReal = jqueryFiles.files[i].size;
+			var name = jqueryFiles.files[i].name
+			if(jqueryFiles.files[i].size > 20*1024*1024){ // 20MB 제한
+				dialog.alert('<div>파일명 : '+name+'</div> <div>파일은 20MB를 넘어 업로드 할 수 없습니다.</div>',function(){});
+				fileCk = false;
+				continue;
+			}
+			TotalFileSize = TotalFileSize + sizeReal;
+			if(TotalFileSize > 1 *1024*1024*1024){ // 총파일 사이즈 1GB 제한
+				dialog.alert('첨부파일의 총 용량은 1GB 를 초과할 수 없습니다.',function(){});
+				TotalFileSize = TotalFileSize - sizeReal;
+				fileCk = false;
+				break;
+			}
+			
+			for(var j=0; j<fileGridData.length; j++){
+
+				for (k=0;spcChar.length>k;k++) {
+					if (name.indexOf(spcChar.substr(k,1))>=0) {
+						dialog.alert("첨부파일명에 특수문자를 입력하실 수 없습니다.\n특수문자를 제외하고 첨부하여 주시기 바랍니다.");
+						$("#"+file).remove();
+						fileCk = false;
+						break;
+					}
+				}
+				if(!fileCk){
+					break;
+				}
+				
+				if(fileGridData[j].name == name){
+					dialog.alert("파일명 : " + name +"\n 은 이미 추가 되어 있는 파일명 입니다.\n확인 후 다시 등록해 주세요");
+					$("#"+file).remove();
+					fileCk = false;
+					break;
+				}
+				fileCk = true;
+			}
+
+			if(fileCk){
+				var tmpObj = new Object(); // 그리드에 추가할 파일 속성
+				tmpObj.name = name;
+				tmpObj.size = size;
+				tmpObj.sizeReal = sizeReal;
+				tmpObj.newFile = true;
+				tmpObj.realName = name;
+				tmpObj.cc_attfile = name;
+				tmpObj.file = jqueryFiles.files[i];
+				
+				fileGridData.push(tmpObj);
+			}
+			else{
+				break;
+			}
+		}
+		fileGrid.setData(fileGridData);
+		if(fileCk && $('#btnAdd').text() == '수정'){
+			dialog.alert("파일첨부 시 수정 버튼을 클릭해야 파일이 저장됩니다.");
+		}
+	}
+}
+
+function startFileupload() {
+	var data = new Object();
+	data = {
+		ReqId : strReqID,
+		ReqCd : reqCd,
+		requestType	: 'maxFileSeq'
+	}
+	var fileseq = ajaxCallWithJson('/webPage/ecmc/Cmc0010Servlet', data, 'json');
+	if(Number(fileseq) < 1) {
+		dialog.alert('파일첨부 일련번호 추출에 실패하였습니다.');
+		return;
+	}
+	
+	var strSubReq = 0;
+	
+	fileGbn = 'U';
+	dirGbn = '21';
+	popCloseFlag = false;
+	
+	attPath = attPath + '/' + strReqID;
+	//attPath = 'C:\\html5\\temp\\'; //테스트중
+	subDocPath = strReqID;
+	
+	for(var i=0; i<fileGridData.length; i++) {
+		if(fileGridData[i].newFile) {
+			var tmpFile = new Object();
+			
+			if($('#chkNew').is(':checked')) {
+				strSubReq = '01';
+			}else {
+				strSubReq = '00';
+			}
+			
+			tmpFile = clone(fileGridData[i]);
+			tmpFile.savefile = strReqID + '/' + reqCd + '' + strSubReq + '' + fileseq + fileGridData[i].name.substr(fileGridData[i].name.lastIndexOf('.'));
+			tmpFile.saveFileName = reqCd + '' + strSubReq + '' + fileseq + fileGridData[i].name.substr(fileGridData[i].name.lastIndexOf('.'));	//서버파일명
+			tmpFile.fileseq = '' + fileseq;
+			tmpFile.attfile = fileGridData[i].name;		//실제파일명
+			tmpFile.fullName = attPath+'/'+strReqID;	//첨부경로
+			tmpFile.fullpath = attPath;					//첨부경로(pathcd=21)
+			
+			upFiles.push(tmpFile);
+			
+			++fileseq;
+		}
+	}
+	
+	//upFiles = clone(fileGridData);
+	console.log('[SRRegisterTab.js] upFiles==>',upFiles);
+	
+	if(upFiles.length > 0) {
+		setTimeout(function() {
+			fileUploadModal.open({
+				width: 685,
+				height: 420,
+				iframe: {
+					method: "get",
+					url: "../modal/fileupload/ComFileUpload.jsp"
+				},
+				onStateChanged: function () {
+					if (this.state === "open") {
+						mask.open();
+					}
+					else if (this.state === "close") {
+						mask.close();
+					}
+				}
+			});
+		}, 200);
+	}else {
+		btnQryClick();
+	}
+}
+
+// ComFileUpload 함수에서 호출
+function setFile(fileList) {
+	console.log('[RegistDevRequest.js] setFile ==>', fileList);
+	
+	fileList.forEach(function(item, Index) {
+		var tmpObj = new Object();
+		tmpObj.reqid = strReqID;
+		tmpObj.reqcd = reqCd;
+		if($('#chkNew').is(':checked')) {
+			tmpObj.subreq = '01';
+		}else {
+			tmpObj.subreq = '00';
+		}
+		tmpObj.savefile = item.savefile;	//요청번호/서버파일명
+		tmpObj.attfile = item.name;			//실제파일명	
+		tmpObj.fileseq = item.fileseq;
+		tmpObj.userid = userId;
+		
+		var data = {
+			docFile : tmpObj,
+			requestType : 'setDocFile'
+		}
+		console.log('[RegistDevRequest.js] setDocFile ==>', data);
+		ajaxAsync('/webPage/ecmc/Cmc0010Servlet', data, 'json', successSetDocFile);
+	});
+}
+
+function successSetDocFile(data) {
+	if(data != null && data != undefined) {
+		if(typeof data == 'string' && data.indexOf('ERROR') > -1) {
+			dialog.alert(data.substr(5));
+			return;
+		}
+	}
+	
+	if(data != 'OK') {
+		dialog.alert(data);
+		return;
+	}
+	
+	btnQryClick();
+}
+
+function cboDocTypeChange() {
+	if(getSelectedIndex('cboDocType') == 0) {
+		$('#txtCaller0').show();
+		$('#txtCaller1').show();
+		$('#txtCaller2').hide();
+		$('[data-ax5select="cboForeign"]').ax5select('disable');
+	}else {
+		$('#txtCaller0').hide();
+		$('#txtCaller1').hide();
+		$('#txtCaller2').show();
+		$('[data-ax5select="cboForeign"]').ax5select('enable');
+	}
+}
+
+function cboForeignChange() {
+	if(getSelectedIndex('cboForeign') > 0) {
+		$('#cboReqNum1').val(getSelectedVal('cboForeign').cm_codename);
+	}
+}
+
+function cboConTypeChange() {
+	
+	console.log("cboConTypeChange() > ", wksropen);
+
+	// SR 오픈시 버튼 비활성화
+	if(today >= wksropen && getSelectedVal('cboConType').cm_micode == "01") {
+		$('#btnAdd').prop("disabled", true);
+		$('#btnComplete').prop("disabled", true);
+		$('#btnDel').prop("disabled", true);
+		$('#chkNew').prop("disabled", true);
+	}else{
+		$('#btnAdd').prop("disabled", false);
+		$('#btnComplete').prop("disabled", false);
+		$('#btnDel').prop("disabled", false);
+		$('#chkNew').prop("disabled", false);
+	}
+}
+
+function txtCaller1Click() {
+	setTimeout(function() {
+		userModal.open({
+			width: 500,
+			height: 400,
+			iframe: {
+				method: "get",
+				url: "../modal/userinfo/UserSelectModal.jsp"
+			},
+			onStateChanged: function () {
+				if (this.state === "open") {
+					mask.open();
+				}
+				else if (this.state === "close") {
+					mask.close();
+					console.log('popSelItem==>',popSelItem,userModalCloseFlag);
+					if(userModalCloseFlag) {
+						if(popSelItem != null && popSelItem != undefined) {
+							$('#txtCaller0').val(popSelItem.cm_deptname);
+							$('#txtCaller0ToolTip').attr('tooltip', popSelItem.cm_project);
+							$('#txtCaller1').val(popSelItem.cm_username);
+							$('#txtCaller1ToolTip').attr('tooltip', popSelItem.cm_userid);
+							$('#cboReqNum1').val(popSelItem.cm_deptname);
+						}
+					}
+				}
+			}
+		}, function () {});
+	}, 200);
+}

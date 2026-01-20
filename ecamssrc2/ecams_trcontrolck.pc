@@ -1,0 +1,228 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_trcontrolck.pc                         │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 거래 제어 상태조회 처리 MAIN                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2013. 05. 22                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+#define 	DEBUG 		1
+#define		dfLIMIT     15
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+int 	Process_TRControlCK		();
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath             [dfDir];
+
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			    거래 제어 처리   M A I N                         */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+char	szNode                     [2+1];
+char	szInstanceID               [2+1];
+int 	retval                          ;
+int		nPid                            ;
+
+
+    if ( argc != 3) {
+        printf ("Usage : %s <NODE> <인스턴스ID>\n", argv[0]);
+        exit (0);
+	}
+
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	/*-----------------------------------------------------------*/
+	/* 	신청번호 , 시리얼번호 초기화	          			     */
+	/*-----------------------------------------------------------*/
+	sprintf(szNode      , "%s", argv[1]);
+	sprintf(szInstanceID, "%s", argv[2]);
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+
+	/*-----------------------------------------------------------*/
+	/*	ResultFile Dir 체크                                      */
+	/*-----------------------------------------------------------*/
+	SetTempDir("11", gszRsultPath);
+	Local_Dir_Make(gszRsultPath );
+
+
+	/*-----------------------------------------------------------*/
+	/*	처리결과코드 SET 					                     */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		UPDATE  CMD7000
+		   SET  CD_STATUS = NULL
+		 WHERE  CD_REQCD  = '01'
+		   AND  CD_NODE       = :szNode
+		   AND  CD_INSTANCEID = DECODE(:szInstanceID, NULL, CD_INSTANCEID
+		   											, ''  , CD_INSTANCEID
+		   	                                              , :szInstanceID
+		   	                          );
+
+	EXEC SQL COMMIT;
+	
+
+	/*-----------------------------------------------------------*/
+	/*	신청 구분별 처리					                     */
+	/*-----------------------------------------------------------*/
+	retval = Process_TRControlCK(szNode, szInstanceID);
+
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit(retval);
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_TRControlCK                              */
+/*	Action    : 거래 제어 상태조회처리 SUB PROGRAM Call          */
+/*  Parameter : pNode  : 노드                                    */
+/*              pInstanceID   : 인스턴스                         */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Process_TRControlCK	( char *pNode
+							, char *pInstanceID
+							)
+{
+char	szNODE                     [2+1];
+char	szRUNCD                    [2+1];
+char	szINSTANCECD              [10+1];
+char	szINSTANCEID              [10+1];
+char	szSvrIP                [dfSvrIP];
+char	szSysCmd            [dfFullPath];
+int 	nErrCnt                         ;
+int 	retval                          ;
+int 	szSeqNo                         ;
+
+
+	/*-----------------------------------------------------------*/
+	/* 	거래제어 처리                            			     */
+	/*-----------------------------------------------------------*/
+	EXEC SQL DECLARE TRControl_Rsrc CURSOR FOR
+		SELECT  CD_NODE
+		      , CD_INSTANCECD
+		      , CD_INSTANCEID
+		      , CD_RUNCD
+		      , CD_SVRIP
+		  FROM  CMD7000
+		 WHERE  CD_NODE       = :pNode
+		   AND  CD_REQCD      = '01'
+		   AND  CD_INSTANCEID = DECODE(:pInstanceID, NULL, CD_INSTANCEID
+		   										   , ''  , CD_INSTANCEID
+		   	                                             , :pInstanceID
+									  );
+
+	nErrCnt = 0;
+	EXEC SQL open  TRControl_Rsrc;
+    while (1) {
+		EXEC SQL fetch TRControl_Rsrc
+			INTO  :szNODE
+			    , :szINSTANCECD
+			    , :szINSTANCEID
+			    , :szRUNCD
+			    , :szSvrIP     ;
+
+		if (sqlca.sqlcode == 1403)	break;
+
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+			break;
+		}
+
+		NotUseDataTruncate(szNODE      , 0x20);
+		NotUseDataTruncate(szINSTANCECD, 0x20);
+		NotUseDataTruncate(szINSTANCEID, 0x20);
+		NotUseDataTruncate(szRUNCD     , 0x20);
+		NotUseDataTruncate(szSvrIP     , 0x20);
+
+
+		/*-------------------------------------------------------*/
+		/* 	동시 처리건수 체크                   			     */
+		/*-------------------------------------------------------*/
+		while (1) {
+			sprintf(szSysCmd, "procck ecams_trcontrolck_sub");
+			retval = system(szSysCmd) / 256;
+			if (retval < dfLIMIT) {
+				break;
+			}
+			sleep (1);
+		}
+
+		szSeqNo = 0;
+
+		sprintf(szSysCmd, "ecams_trcontrolck_sub %s %s %s %s %s & ", szNODE, szRUNCD, szINSTANCECD, szINSTANCEID, szSvrIP);
+		retval = system (szSysCmd) / 256;
+		if (retval != 0) {
+			nErrCnt++;
+		}
+	}
+	EXEC SQL close TRControl_Rsrc;
+
+	/*-----------------------------------------------------------*/
+	/* 	처리 완료 여부 체크                      			     */
+	/*-----------------------------------------------------------*/
+	while (1) {
+		sleep (3);
+		sprintf(szSysCmd, "procck ecams_trcontrolck_sub");
+		retval = system(szSysCmd) / 256;
+		if (retval == 0) {
+			break;
+		}
+	}
+
+	return (nErrCnt);
+
+}
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

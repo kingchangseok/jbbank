@@ -1,0 +1,349 @@
+/*-----------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_acct_syseff.pc                         │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 영향분석대상 확인대상 목록 작성              │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2013. 08. 27                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+/*---------------------------------------------------------------*/
+/*		HEADER  FILE  INCLUDE                                    */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+
+
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+
+
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_SYSEFF                                   */
+/*	Action    : 영향분석대상 확인대상 목록 작성                  */
+/*  Parameter : pAcptNo      : 신청번호                          */
+/*              pPrcSys      : 처리단계                          */
+/*              pRstCond : 처리결과                              */
+/*  Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+void 	Process_SYSEFF	( char *pAcptNo
+						, char *pPrcSys
+						, char *pRstCond
+						)
+{
+char	szSysCD                [dfSysCD];
+int		nCnt                            ;
+char	szSvrIP                [dfSvrIP];
+int		szPortNo                        ;
+char	szSvrCD                [dfSvrCD];
+char	szSvrName              [dfSvrNM];
+int		szSvrSeq                        ;
+int 	szSerNo                         ;
+char	szRstFile           [dfFullPath];
+int 	szSysStep                       ;
+char	szResultMsg               [1000];
+char	szItemID              [dfItemID];
+char	szBaseItem            [dfItemID];
+char	szDirPath                [dfDir];
+char	szRsrcName          [dfRsrcName];
+char	szConfNo              [dfAcptNo];
+char	szBaseName          [dfRsrcName];
+char	szEditor              [dfEditor];
+char	szStatus                   [1+1];
+char	szDsnCD                [dfDsnCD];
+char	szPRJCD                     [50];
+char	szRefItemID           [dfItemID];
+char	szSysCmd                  [1024];
+char	szEffUser             [dfEditor];
+char	szUserName                 [100];
+int 	nRefCnt                         ;
+char	szRefSysCD               [128+1];
+char	szRefDsnCD               [128+1];
+char	szRefFileNM              [128+1];
+char	szUCSvrIP              [dfSvrIP];
+int 	szUCPort                        ;
+int 	retval                          ;
+char	szEffSkip                  [1+1];
+
+
+			
+	szSysStep = 0;
+	szSerNo   = 0;
+
+	/*-------------------------------------------------------*/
+	/*	영향분석 연계 SKIP 여부 조회                         */
+	/*-------------------------------------------------------*/
+    EXEC SQL
+    	SELECT  NVL(CM_EFFSKIP, 'N')
+    	  INTO  :szEffSkip
+    	  FROM  CMM0010
+    	 WHERE  CM_STNO = 'ECAMS';
+
+    if (sqlca.sqlcode != 0) {
+    	return;
+    }
+    NotUseDataTruncate(szEffSkip, 0x00);
+	    	
+	if (strcmp(szEffSkip, "Y") == 0) {
+		return;
+	}
+    /*-----------------------------------------------------------*/
+    /*   영향분석 확인대상 자료 삭제                             */
+    /*-----------------------------------------------------------*/
+	EXEC SQL
+		DELETE  CMR1015
+		 WHERE  CR_ACPTNO = :pAcptNo;
+
+		 	
+    /*-----------------------------------------------------------*/
+    /*   ASTA  DB Server  Connect                                */
+    /*-----------------------------------------------------------*/
+	sprintf(szConnID, "%s", "ASTA");
+	if (ConnectAstaDB(szConnID) == FALSE) {
+		return;
+	}
+	
+	/*-----------------------------------------------------------*/
+	/*	신청 목록 작성                                           */
+	/*-----------------------------------------------------------*/
+	EXEC SQL DECLARE  EFFECT_REQLIST CURSOR FOR
+		SELECT  A.CR_ITEMID
+              , A.CR_EDITOR
+              , B.CM_USERNAME
+		  FROM  CMR1010 A
+              , CMM0040 B
+		 WHERE  A.CR_ACPTNO = :pAcptNo
+		   AND  A.CR_EDITOR = B.CM_USERID;
+		   
+	EXEC SQL OPEN EFFECT_REQLIST;
+	while (1) {
+		EXEC SQL FETCH EFFECT_REQLIST
+			INTO  :szBaseItem
+				, :szEditor
+				, :szUserName;
+
+		if (sqlca.sqlcode != 0)	break;
+
+		NotUseDataTruncate (szBaseItem, 0x20);
+		NotUseDataTruncate (szEditor  , 0x20);
+		sprintf(szUserName, "%s", trunc_char(szUserName));
+		
+		
+		/*-------------------------------------------------------*/
+		/*	영향분석 대상 파일 목록 작성                         */
+		/*-------------------------------------------------------*/	
+		EXEC SQL DECLARE  EFFECT_LIST CURSOR for
+			SELECT  CR_SYSCD
+			      , CR_DSNCD
+			      , CR_ITEMID
+			      , CR_RSRCNAME
+			  FROM  CMR1010 A
+			      , CMM0036 B
+			 WHERE  A.CR_BASEITEM = :szBaseItem
+			   AND  A.CR_ACPTNO   = (SELECT  CR_ACPTNO
+			                        FROM  (SELECT  CR_ACPTNO
+			                                 FROM  CMR1010
+			                                WHERE  CR_ITEMID = :szBaseItem
+			                                  AND  CR_STATUS IN ('8', '9')
+			                                  AND  SUBSTR(CR_ACPTNO, 5, 2) = '04'
+			                                ORDER  BY  CR_PRCDATE DESC
+			                              )
+			                       WHERE  ROWNUM = 1
+			                      )
+			   AND  A.CR_STATUS IN ('8', '9')
+			   AND  A.CR_SYSCD  = B.CM_SYSCD
+			   AND  A.CR_RSRCCD = B.CM_RSRCCD
+			   AND  B.CM_CLOSEDT IS NULL
+			   AND  SUBSTR(B.CM_INFO, 34, 1) = '1';
+		
+		EXEC SQL  OPEN EFFECT_LIST;
+		while (1) {
+			EXEC SQL FETCH EFFECT_LIST
+				INTO  :szSysCD
+					, :szDsnCD
+				    , :szItemID
+					, :szBaseName;
+	
+			if (sqlca.sqlcode != 0)	break;
+		
+			NotUseDataTruncate (szSysCD   , 0x20);
+			NotUseDataTruncate (szDsnCD   , 0x20);
+			NotUseDataTruncate (szItemID  , 0x20);
+			NotUseDataTruncate (szBaseName, 0x20);
+		
+			/*---------------------------------------------------*/
+			/*	영향분석 대상 파일 목록 작성                     */
+			/*---------------------------------------------------*/	
+			EXEC SQL AT :szConnID DECLARE  EFFECT_REFLIST CURSOR for
+				SELECT  REF_SYSCD
+				      , REF_DSNCD
+				      , REF_FILENM
+				  FROM  ASTA1.V_ECAMS_FILE_REF A
+				 WHERE  SYSCD  = :szSysCD
+				   AND  DSNCD  = :szDsnCD
+				   AND  FILENM = :szBaseName;
+		
+			EXEC SQL  AT :szConnID open EFFECT_REFLIST;
+			while (1) {
+				EXEC SQL AT :szConnID  FETCH EFFECT_REFLIST
+					INTO  :szRefSysCD
+						, :szRefDsnCD
+						, :szRefFileNM;
+		
+				if (sqlca.sqlcode != 0)	break;
+		
+				NotUseDataTruncate (szRefSysCD , 0x20);
+				NotUseDataTruncate (szRefDsnCD , 0x20);
+				NotUseDataTruncate (szRefFileNM, 0x20);
+				
+
+				EXEC SQL
+					SELECT  CR_ITEMID
+					      , CR_EDITOR
+					  INTO  :szRefItemID
+					  	  , :szEffUser
+					  FROM  CMR0020
+					 WHERE  CR_SYSCD    = :szRefSysCD
+					   AND  CR_DSNCD    = :szRefDsnCD
+					   AND  CR_RSRCNAME = :szRefFileNM;
+		
+				if (sqlca.sqlcode != 0)	continue;
+										
+				NotUseDataTruncate (szRefItemID, 0x20);
+				NotUseDataTruncate (szEffUser  , 0x20);
+				      
+				/*-----------------------------------------------*/
+				/*	영향분석 결과 목록 작성                       /
+				/*-----------------------------------------------*/
+				EXEC SQL
+					INSERT INTO  CMR1015
+						( CR_ACPTNO   
+						, CR_ITEMID   
+						, CR_REFITEMID
+						, CR_REFUSER  
+						, CR_CHKDATE  
+						, CR_CHKUSSER 
+						, CR_CHKFLAG  
+						, CR_STATUS   
+						)
+					VALUES
+						( :pAcptNo
+						, :szItemID
+						, :szRefItemID
+						, :szEffUser
+						, NULL
+						, NULL
+						, 'N'
+						, '0'
+						);
+			}
+			EXEC SQL AT :szConnID  close EFFECT_REFLIST;
+		}
+		EXEC SQL close EFFECT_LIST;
+	}
+	EXEC SQL close EFFECT_REQLIST;
+	
+	EXEC SQL AT :szConnID ROLLBACK WORK RELEASE;
+	
+	/*-----------------------------------------------------------*/
+	/*	영향분석 대상 파일중 동일신청건에 포함된자원 삭제        */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		DELETE  CMR1015 A
+		 WHERE  CR_ACPTNO = :pAcptNo
+		   AND  CR_REFITEMID IN (SELECT  CR_ITEMID
+		                           FROM  CMR1015
+		                          WHERE  CR_ACPTNO = A.CR_ACPTNO
+		                        );
+
+	EXEC SQL COMMIT;
+
+
+	/*-----------------------------------------------------------*/
+	/*	UC 서버 정보 조회                                        */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  CM_SVRIP
+		      , CM_PORTNO
+		  INTO  :szUCSvrIP
+		  	  , :szUCPort
+		  FROM  CMM0015
+		 WHERE  CM_STNO  = 'ECAMS'
+		   AND  CM_GBNCD = 'UC';
+	
+	if (sqlca.sqlcode != 0) {
+		sprintf(pRstCond, "%s", "0000");
+		return;		
+	}
+	NotUseDataTruncate (szUCSvrIP, 0x20);
+	
+
+	/*-----------------------------------------------------------*/
+	/*	영향분석 메신저 통보 대상 목록 작성                      */
+	/*-----------------------------------------------------------*/
+	EXEC SQL DECLARE  EFFECT_UCSend_LIST CURSOR for
+		SELECT  C.CM_USERID
+		      , COUNT(*)
+		  FROM  CMR1015 A
+		      , CMM0040 B
+		      , CMM0040 C
+		 WHERE  A.CR_ACPTNO  = :pAcptNo
+		   AND  A.CR_REFUSER = B.CM_USERID
+		   AND  B.CM_PROJECT = C.CM_PROJECT
+		   AND  C.CM_ACTIVE  = '1'
+		   AND  (    EXISTS (SELECT  'X'
+		                       FROM  CMM0043
+		                      WHERE  CM_USERID = C.CM_USERID
+		                        AND  CM_RGTCD  = 'UC'
+		                    )
+		        )
+		 GROUP  BY  C.CM_USERID;
+
+	EXEC SQL open EFFECT_UCSend_LIST;
+	while (1) {
+		EXEC SQL FETCH EFFECT_UCSend_LIST
+			INTO  :szEffUser
+				, :nRefCnt;
+
+		if (sqlca.sqlcode != 0)	break;
+
+		NotUseDataTruncate (szEffUser, 0x20);
+		
+		sprintf(szSysCmd, "UCMessenger %s %s %d %s %d", szUserName, szEffUser, nRefCnt, szUCSvrIP, szUCPort);
+		retval = system (szSysCmd) / 256;
+
+		/*LOG*/sprintf(gszLogMsg,"[%s] <%s> UCMessenger 발송 <%s> <%d>", pAcptNo, pPrcSys, szSysCmd, retval);
+	    eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+		
+	}
+	EXEC SQL close EFFECT_UCSend_LIST;
+
+	sprintf(pRstCond, "%s", "0000");
+	
+	return;
+	
+ }
+ 
+
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

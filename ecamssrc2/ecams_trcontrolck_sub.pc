@@ -1,0 +1,437 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_trcontrolck_sub.pc                     │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 계정계 거래 제어 처리 SUB                    │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2013. 02. 19                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+#define 	DEBUG 		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+int 	Process_TRControlck_CMD	();
+int 	Check_ErrCheck_eai 		();
+
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath             [dfDir];
+
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			신청자원의 처리   M A I N                            */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+char	szRstCond            [dfRstCode];
+char	szNODE                    [10+1];
+char	szINSTANCECD              [10+1];
+char	szINSTANCEID              [10+1];
+char	szRUNCODE                 [10+1];
+char	SysCmd                     [256];
+char	szSvrIP                [dfSvrIP];
+int 	retval                          ;
+int		nPid                            ;
+
+
+    if ( argc != 6 ) {
+        fprintf (stderr, "Usage : %s <노드명> <구분> <업무구분코드> <인스턴스ID> <서버주소> \n", argv[0]);
+        exit (0);
+
+	}
+
+    memset(szRstCond   , 0x00, sizeof(szRstCond   ));
+    memset(szNODE      , 0x00, sizeof(szNODE      ));
+    memset(szRUNCODE   , 0x00, sizeof(szRUNCODE   ));
+    memset(szINSTANCECD, 0x00, sizeof(szINSTANCECD));
+    memset(szINSTANCEID, 0x00, sizeof(szINSTANCEID));
+    memset(szSvrIP     , 0x00, sizeof(szSvrIP     ));
+
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	/*-----------------------------------------------------------*/
+	/* 	신청번호 , 시리얼번호 초기화	          			     */
+	/*-----------------------------------------------------------*/
+	sprintf(szNODE      , "%s", argv[1]);
+	sprintf(szRUNCODE   , "%s", argv[2]);
+	sprintf(szINSTANCECD, "%s", argv[3]);
+	sprintf(szINSTANCEID, "%s", argv[4]);
+	sprintf(szSvrIP     , "%s", argv[5]);
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+
+	/*-----------------------------------------------------------*/
+	/*	ResultFile Dir 체크                                      */
+	/*-----------------------------------------------------------*/
+	SetTempDir("TR", gszRsultPath);
+	Local_Dir_Make(gszRsultPath );
+
+	/*-----------------------------------------------------------*/
+	/*	신청 구분별 처리					                     */
+	/*-----------------------------------------------------------*/
+	memset(szRstCond, 0x00, sizeof(szRstCond));
+	retval = Process_TRControlck_CMD(szNODE, szRUNCODE, szINSTANCECD, szINSTANCEID, szSvrIP);
+	
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit(retval);
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_TRControlck_CMD                          */
+/*	Action    : 거래 제어 처리 명령문 수행                       */
+/*  Parameter : pAcptNo  : 신청번호                              */
+/*              pSerNo   : 일련번호                              */
+/*              pJobID   : 처리단계                              */
+/*              pRstCond : 처리결과                              */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Process_TRControlck_CMD	( char *pNODE
+								, char *pRUNCODE
+								, char *pINSTANCECD
+								, char *pINSTANCEID
+								, char *pSvrIP
+								)
+{
+char	szSvrIP                [dfSvrIP];
+char	szRstCond            [dfRstCode]; /* 처리 결과 받을 변수 */
+char	szSvrName              [dfSvrNM];
+int 	nSvrPort                        ;
+int 	nErrCnt                         ;
+char	szReqCode                 [10+1];
+char	szSVRIP                [dfSvrIP];
+int 	szPORTNO                        ;
+char	szSTARTCK                [200+1];
+char	szRUNTYPE                  [1+1];
+char	szShlFile           [dfFullPath];
+char	szShellNM           [dfFullPath];
+char	szRstFile           [dfFullPath];
+char	szRstFile1          [dfFullPath];
+char	szDummy                    [256];
+char	szSysCmd            [dfFullPath];
+char	szRstMsg                 [200+1];
+int 	nCnt                            ;
+int 	retval                          ;
+int 	retval1                         ;
+char	szRstCode                    [5];
+FILE	*SRCPtr                         ;
+CMD_INFO	CmdInfo                     ;
+
+
+	nErrCnt = 0;
+	
+	/*-----------------------------------------------------------*/
+	/*	상태조회 명령 조회         			                     */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  CD_SVRIP
+		      , CD_PORTNO
+		      , CD_STARTCK
+		      , CD_RUNTYPE
+		  INTO  :szSVRIP
+		      , :szPORTNO
+		      , :szSTARTCK
+		      , :szRUNTYPE
+		  FROM  CMD7000
+		 WHERE  CD_NODE       = :pNODE
+		   AND  CD_REQCD      = '01'
+		   AND  CD_RUNCD      = :pRUNCODE
+		   AND  CD_INSTANCECD = :pINSTANCECD
+		   AND  CD_INSTANCEID = :pINSTANCEID
+		   AND  CD_SVRIP      = :pSvrIP     ;
+
+	if (sqlca.sqlcode != 0) {
+		nErrCnt++;
+		return (nErrCnt);
+	}
+
+
+	sprintf(szShellNM, "%s.%s.%s.%s.%s", pNODE, pRUNCODE, pINSTANCECD, pINSTANCEID, pSvrIP);
+
+	sprintf(szSVRIP   , "%s", trunc_char(szSVRIP   ));
+	sprintf(szSTARTCK , "%s", trunc_char(szSTARTCK ));
+
+	nErrCnt = 0;
+	memset(szRstMsg , 0x00, sizeof(szRstMsg ));
+	memset(szRstCode, 0x00, sizeof(szRstCode));
+	
+	/*-----------------------------------------------------------*/
+	/*	소켓 명령 변수 초기화                                    */
+	/*-----------------------------------------------------------*/
+	InitCmdInfo(&CmdInfo);
+	strcpy(CmdInfo.szAcptNo, "000000000000");
+	sprintf(CmdInfo.szLogFile,"%sTransList.%s",gszLogPath,gszLogFile);
+	strcpy(CmdInfo.szServerIP,szSVRIP);
+	CmdInfo.nPort	= szPORTNO;
+
+	sprintf(szShlFile, "%sTRCONTROLCK_%s", gszTempPath, szShellNM);
+	sprintf(szRstFile, "TRCONTROLCK_%s.result", szShellNM);
+
+	if (strcmp(szRUNTYPE, "R") == 0) {
+	    if ((SRCPtr = fopen(szShlFile, "w") ) == (FILE *) NULL) {
+	    	return (1);
+	    }
+
+		fprintf(SRCPtr, "%s 1> /dev/null 2>&1 \n", szSTARTCK);
+		fprintf(SRCPtr, "echo $? > %s.rst \n", szRstFile);
+	    fclose(SRCPtr);
+
+		sprintf(CmdInfo.szJobGub, "%s", "F");
+		sprintf(CmdInfo.szRemote, "TRCONTROLCK_%s", szShellNM);
+		sprintf(CmdInfo.szLocal , "%s", szShlFile);
+		Server_Cmd_JOB(&CmdInfo);
+
+		sprintf(CmdInfo.szJobGub, "%s", "S");
+		sprintf(CmdInfo.szCommand, "chmod 700 %s", CmdInfo.szRemote);
+		Server_Cmd_JOB(&CmdInfo);
+
+		sprintf(CmdInfo.szJobGub, "%s", "S");
+		sprintf(CmdInfo.szCommand, "%s", CmdInfo.szRemote);
+		Server_Cmd_JOB(&CmdInfo);
+
+		if (strcmp(CmdInfo.szRstCond, "0000") != 0) {
+			sprintf(szRstCode, "%s", "E");
+		}
+		else {
+			sprintf(CmdInfo.szJobGub, "%s", "G");
+			sprintf(CmdInfo.szRemote, "%s.rst", szRstFile);
+			sprintf(CmdInfo.szLocal , "%s%s.rst", gszTempPath, szRstFile);
+			Server_Cmd_JOB(&CmdInfo);
+		}
+		
+		sprintf(CmdInfo.szJobGub, "%s", "S");
+		sprintf(CmdInfo.szCommand, "rm -f TRCONTROLCK_%s*", szShellNM);
+		Server_Cmd_JOB(&CmdInfo);
+
+		remove (szShlFile);
+		
+		if (strcmp(szRstCode, "E") != 0) {
+			sprintf(szRstFile, "%sTRCONTROLCK_%s.result.rst", gszTempPath, szShellNM);
+	
+		    if ((SRCPtr = fopen(szRstFile, "r") ) == (FILE *) NULL) {
+		    	fprintf(stderr, "FILE OPEN ERROR = [%s]\n", szRstFile);
+				remove (szRstFile);
+				return(1);
+		    }
+	
+		    memset(szDummy, 0x00, sizeof(szDummy));
+		    while (fgets(szDummy, 256, SRCPtr) != (char *) NULL) {
+		        sprintf(szDummy, "%s", rep_char(szDummy,"\n",""));
+				sprintf(szDummy, "%s", rep_char(szDummy,"\r",""));
+				sprintf(szDummy, "%s", trunc_char(szDummy));
+	
+				if (strlen(szDummy) == 0)	continue;
+		    }
+		    fclose (SRCPtr);
+	
+			if (strcmp(pRUNCODE, "01") == 0) {   /* MCI              */
+				sprintf(szRstCond, "%04d", atoi(szDummy));
+				if (memcmp(szRstCond, "00", 2) != 0) {
+					nErrCnt++;
+				}
+	
+				if (memcmp(szRstCond+2, "00", 2) != 0) {
+					nErrCnt++;
+				}
+			}
+			else {
+				if (memcmp(szRstCond, "0000", 4) != 0) {
+					nErrCnt++;
+				}
+			}
+			
+			if (nErrCnt == 0) {
+				sprintf(szRstCode, "%s", "N");
+			}
+			else {
+				sprintf(szRstCode, "%s", "Y");
+			}
+		}
+	}
+	else {
+		sprintf(szRstFile, "%sTRCONTROLCK_%s.result", gszTempPath, szShellNM);
+		sprintf(szSysCmd, "%s %s", szSTARTCK, szRstFile);
+		retval = system(szSysCmd)/256;
+	}
+
+	sprintf(szRstFile, "%sTRCONTROLCK_%s.result", gszTempPath, szShellNM);
+	if (strcmp(pRUNCODE, "02") == 0 ||
+		strcmp(pRUNCODE, "03") == 0 ) {
+		Check_ErrCheck_eai (szRstFile, szRstCond);
+		if (strcmp(szRstCond, "0000") == 0) {
+			sprintf(szRstCode, "%s", "N");
+		}
+		else
+		if (strcmp(szRstCond, "EROR") == 0) {
+			sprintf(szRstCode, "%s", "E");
+		}
+		else {
+			sprintf(szRstCode, "%s", "Y");
+		}
+	}
+	
+	sprintf(szRstFile, "%sTRCONTROLCK_%s.result.rst", gszTempPath, szShellNM);
+	remove (szRstFile);
+
+
+	/*-----------------------------------------------------------*/
+	/*	상태조회 결과등록         			                     */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		UPDATE  CMD7000
+		   SET  CD_STATUS     = :szRstCode
+		 WHERE  CD_NODE       = :pNODE
+		   AND  CD_REQCD      = '01'
+		   AND  CD_RUNCD      = :pRUNCODE
+		   AND  CD_INSTANCECD = :pINSTANCECD
+		   AND  CD_INSTANCEID = :pINSTANCEID
+		   AND  CD_SVRIP      = :pSvrIP     ;
+
+	EXEC SQL COMMIT;
+
+	return (nErrCnt);
+	
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Check_ErrCheck_eai                               */
+/*	Action    : eai/fep 거래제어 처리결과 체크                   */
+/*  Parameter : pAcptNo  : 신청번호                              */
+/*              pSerNo   : 일련번호                              */
+/*              pJobID   : 처리단계                              */
+/*              pRstCond : 처리결과                              */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Check_ErrCheck_eai	( char *pRstFile
+							, char *pRstCond
+							)
+{
+char	szDummy             [dfFullPath];
+char	szResult            [dfFullPath];
+int 	retval                          ;
+int 	ret                             ;
+FILE	*SrcPtr                         ;
+
+
+    if ((SrcPtr = fopen(pRstFile, "r") ) == (FILE *) NULL) {
+    	fprintf(stderr, "FILE OPEN ERROR = [%s]\n", pRstFile);
+    	sprintf(pRstCond, "%s", "EROR");
+    	return (1);
+    }
+
+	sprintf(pRstCond, "%s", "EROR");
+	memset(szResult, 0x00, sizeof(szResult));
+	
+	retval = 1;
+    memset(szDummy, 0x00, sizeof(szDummy));
+    while (fgets(szDummy, 256, SrcPtr) != (char *) NULL) {
+        sprintf(szDummy, "%s", rep_char(szDummy,"\n",""));
+		sprintf(szDummy, "%s", rep_char(szDummy,"\r",""));
+		sprintf(szDummy, "%s", trunc_char(szDummy));
+
+		if (strlen(szDummy) == 0)	continue;
+
+		ret = Char_Check(szDummy, "result=");
+		if (ret >= 0) {
+			sprintf(szResult, "%s", right_char(szDummy, strlen(szDummy) - ret - 7));
+			ret = Char_Check(szResult, ",");
+			if (ret >= 0) {
+				sprintf(szResult, "%s", left_char(szResult, ret));				
+			}
+		}
+
+		ret = Char_Check(szDummy, "status=");
+		if (ret < 0) {
+			continue;
+		}
+		sprintf(szDummy, "%s", right_char(szDummy, strlen(szDummy) - ret - 7));
+		sprintf(szDummy, "%s", trunc_char(szDummy));
+
+		ret = Char_Check(szDummy, "}");
+		if (ret >= 0) {
+			sprintf(szDummy, "%s", left_char(szDummy, ret));
+			sprintf(szDummy, "%s", trunc_char(szDummy));
+		}
+
+		ret = Char_Check(szDummy, ",");
+		if (ret >= 0) {
+			sprintf(szDummy, "%s", left_char(szDummy, ret));
+			sprintf(szDummy, "%s", trunc_char(szDummy));
+		}
+
+		if (strcmp(szDummy, "success") == 0) {
+			retval = 0;
+		}
+		else {
+			retval = 1;
+		}
+		break;
+    }
+    fclose (SrcPtr);
+
+	if (retval == 0) {
+		if (strcmp(szResult, "NONE") == 0)
+			sprintf(pRstCond, "%s", "0000");
+		else
+			sprintf(pRstCond, "%s", "0001");
+	}
+	
+	return (0);
+
+}
+
+
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

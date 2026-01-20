@@ -1,0 +1,373 @@
+/*-----------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_svrck.pc                               │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 변경관리 대상서버시스템 Socket Process Check │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2011. 07. 11                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define	dfMain		1
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include    <ecamsapi.h>
+
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+/*---------------------------------------------------------------*/
+/*    User Work 변수                                             */
+/*---------------------------------------------------------------*/
+int      cSockId    ;                 /* Connect Socket ID       */
+int  	 gRcvFd     ;                 /* 수신용 File Pointer     */
+int  	 gSndFd     ;                 /* 송신용 File Pointer     */
+int  	 gProcStep  ;                 /* 송신/수신 상태          */
+int  	 gProcWork  ;                 /* 송신/수신 여부          */
+int  	 gFileOffset;                 /* 파일 송신 OffSet        */
+char     gJobGub    [2]             ; /* 처리구분                */
+char     gCommand   [dfeCAMSBufSize]; /* 처리명령문              */
+char     gLocal     [dfeCAMSBufSize]; /* Local File Name         */
+char     gLocal1    [dfeCAMSBufSize]; /* Local File Name         */
+char     gRemote    [dfeCAMSBufSize]; /* Remote File Name        */
+int      gFileSize             ;      /* File Size               */
+char     gFileDate         [20];      /* File Date               */
+char     gRstIPAddr        [20];
+char     systime  [16], sysdate [16]; /* 시스템일자, 시간        */
+char     filename         [200];      /* File Name               */
+char     SysCmd           [200];      /* 시스템 명령문           */
+char     indat            [256];      /* Process Name Work       */
+int      nret                  ;
+int      nret1                 ;
+char     sBackSorc1       [200];      /* BackUp File Name        */
+int      i                     ;      /* Loop Count Work         */
+
+
+time_t       time_clock;
+
+/*---------------------------------------------------------------*/
+/*   eCAMS  LOGGING 관련  CONSTANT                               */
+/*---------------------------------------------------------------*/
+FILE   *fd;                           /* Logging File Pointer    */
+struct stat  f_st;                    /* Logging File Struct     */
+struct tm   *loc;                     /* File 정보 Read Pointer  */
+
+char   workbuf [dfeCAMSBufSize];      /* Logging Buffer          */
+WorkStatTag  *stat_t;                 /* Logging Buffer Pointer  */
+
+
+/*---------------------------------------------------------------*/
+/*   SOCKET 통신관련  CONSTANT                                   */
+/*---------------------------------------------------------------*/
+ulong  ul_servip;                     /* Server IP의 Convert IP  */
+int    retval;                        /* 처리결과                */
+FILE   *ScrPtr;                       /* LocalFile작성용 Pointer */
+char   **gEnvp;                       /* Parameter죵료용 Pointer */
+
+extern    int    errno;               /* 시스템 오류코드         */
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*       서버 Agent 상태 체크 처리 M A I N                       */
+/*                                                               */
+/*****************************************************************/
+main 	(int argc, char **argv, char **envp)
+{
+char	szSysCD                [dfSysCD]; /* 시스템 ID           */
+char	ssyscd                 [dfSysCD]; /* 시스템 ID           */
+char	sSvrcd                 [dfSvrCD]; /* 서버구분            */
+char	ServerIP               [dfSvrIP]; /* SERVER IPADDRESS    */
+char	sRstCond             [dfRstCode]; /* SERVER Check 결과   */
+char	szSysMsg                  [30+1]; /* 시스템설명          */
+char	szCodeName                [20+1]; /* 코드명칭            */
+char	szSvrOSNM                  [256]; /* 서버 OS NAME        */
+char	szSvrNM                    [256]; /* 서버 OS NAME        */
+char	szSvrOSVer                 [256]; /* 서버 OS NAME        */
+char	szSvrOSDir                [1024]; /* Agent 설치 디렉토리 */
+char	szSvrUser                 [1024]; /* Agent 기동 계정     */
+int 	SvrPort                         ; /* 사용 PROT           */
+int		nTotCnt                         ; /* 대상서버 대수       */
+int		nOKCnt                          ; /* 정상서버 대수       */
+int 	nErrCnt                         ; /* 오류서버 대수       */
+int		nSize1                          ;
+int		nSize2                          ;
+int		nSize3                          ;
+int 	nRet                            ;
+FILE	*SRCPTR                         ;
+
+    gEnvp = envp;
+
+    /*-----------------------------------------------------------*/
+    /*   동시 처리 여부 체크하여 동시처리 방지                   */
+    /*-----------------------------------------------------------*/
+	sprintf(SysCmd, "procck %s", argv[0]);
+	retval = system(SysCmd)/256;
+	if (retval > 1)	exit (1);
+
+	if (argc > 1) {
+		sprintf(szSysCD, "%s", argv[1]);
+	}
+	else {
+		sprintf(szSysCD, "%s", "ALL");
+	}
+	
+	
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB("ECAMS") == FALSE)
+		exit(1);
+
+
+    nTotCnt = 0;
+    nOKCnt  = 0;
+    nErrCnt = 0;
+
+    nSize1 = 0;
+    nSize2 = 0;
+    nSize3 = 0;
+
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   조회항목별 최대길이 계산                                */
+    /*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  MAX(LENGTHB(b.CM_CodeName))
+		       ,MAX(LENGTHB(a.CM_SvrIP   ))
+		  INTO  :nSize1
+		       ,:nSize2
+          FROM  CMM0031 a
+              , CMM0020 b
+         WHERE  a.CM_CLOSEDT IS NULL
+           AND  a.CM_SVRIP   IS NOT NULL
+           AND  a.CM_SVRSTOP = 'N'
+           AND  a.CM_Syscd IN (SELECT  CM_Syscd
+                                 FROM  CMM0030
+                                WHERE  CM_Closedt IS NULL
+                                  AND  CM_SYSCD = DECODE(:szSysCD, 'ALL', CM_SYSCD, :szSysCD)
+                              )
+           AND  b.CM_MaCode = 'SERVERCD'
+           AND  b.CM_MiCode = a.CM_SvrCD;
+
+
+    /*-----------------------------------------------------------*/
+    /*   시스템명칭 최대길이 계산                                */
+    /*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  MAX(LENGTHB(CM_SYSMSG))
+		  INTO  :nSize3
+		  FROM  CMM0030
+		 WHERE  CM_Closedt IS NULL
+		   AND  CM_SYSCD = DECODE(:szSysCD, 'ALL', CM_SYSCD, :szSysCD);
+
+
+    /*-----------------------------------------------------------*/
+    /*   서버 Agent 체크 대상 조회                               */
+    /*-----------------------------------------------------------*/
+    EXEC SQL DECLARE SYSInfo CURSOR FOR
+         SELECT  DISTINCT
+                 A.CM_SYSCD
+               , A.CM_SVRCD
+               , B.CM_CODENAME
+               , A.CM_SVRIP
+               , NVL(A.CM_PORTNO, 0)
+           FROM  CMM0031 A
+               , CMM0020 B
+               , CMM0030 C
+          WHERE  A.CM_CLOSEDT IS NULL
+            AND  A.CM_SVRIP   IS NOT NULL
+            AND  A.CM_SVRSTOP = 'N'
+			AND  SUBSTR(C.CM_SYSINFO,19,1) = '0'
+            AND  A.CM_SYSCD IN (SELECT  CM_SYSCD
+                                  FROM  CMM0030
+                                 WHERE  CM_CLOSEDT IS NULL
+                                   AND  CM_SYSCD = DECODE(:szSysCD, 'ALL', CM_SYSCD, :szSysCD)
+                               )
+            AND  B.CM_MACODE = 'SERVERCD'
+            AND  B.CM_MICODE = A.CM_SVRCD
+            AND  A.CM_SYSCD = C.CM_SYSCD
+            AND  C.CM_CLOSEDT IS NULL 
+          ORDER  BY  A.CM_SYSCD, A.CM_SVRCD, A.CM_SVRIP, NVL(A.CM_PORTNO, 0);
+
+	system ("clear");
+
+	fprintf(stdout, "\n");
+	fprintf(stdout, " \033[5m┌───────────────────────────────────────────┐\033[0m\n");
+	fprintf(stdout, " \033[5m│              형상관리 적용대상 서버 CHECK (AGENT CHECK : ecams_svr)                  │\033[0m\n");
+	fprintf(stdout, " \033[5m└───────────────────────────────────────────┘\033[0m\n");
+	fprintf(stdout, "\n");
+
+	EXEC SQL open SYSInfo;
+	while (1) {
+		EXEC SQL fetch SYSInfo
+			INTO  :ssyscd
+				, :sSvrcd
+				, :szCodeName
+				, :ServerIP
+				, :SvrPort;
+
+		NotUseDataTruncate(ssyscd  , 0x20);
+		NotUseDataTruncate(sSvrcd  , 0x20);
+		NotUseDataTruncate(ServerIP, 0x20);
+
+		if (sqlca.sqlcode == 1403) break;
+
+		if (sqlca.sqlcode != 0) {
+			fprintf(stderr, "SQLCODE ERROR = [%d]\n", sqlca.sqlcode);
+			break;
+		}
+			
+		memset(szSysMsg, 0x20, sizeof(szSysMsg));
+		szCodeName[nSize2 + 1] = '\0';
+
+	    /*-------------------------------------------------------*/
+	    /*   시스템 명칭 조회                                    */
+	    /*-------------------------------------------------------*/
+		EXEC SQL
+			SELECT  CM_SYSMSG
+			  INTO  :szSysMsg
+			  FROM  CMM0030
+			 WHERE  CM_SYSCD = :ssyscd;
+
+		if (SvrPort == 0)
+			SvrPort = dfeCAMSFepPort;
+
+		nTotCnt++;
+		szSysMsg[nSize3 + 1] = '\0';
+
+		ul_servip = CvtIPchr2ulong (ServerIP);
+
+		memset(sRstCond, 0x00, sizeof(sRstCond));
+		cSockId = ConnectClient2Server (SvrPort, ul_servip);
+		if (cSockId <= 0) {
+			nErrCnt++;
+			fprintf(stdout, "  [%s %s] [%s] [%-16s] [%6d] Error[C]\n", ssyscd, szSysMsg, szCodeName, ServerIP, SvrPort);
+			sprintf(sRstCond, "ER");
+		}
+		else {
+			nOKCnt++;
+
+			memset(szSvrNM   , 0x00, sizeof(szSvrNM   ));
+			memset(szSvrUser , 0x00, sizeof(szSvrUser ));
+			memset(szSvrOSDir, 0x00, sizeof(szSvrOSDir));
+			
+			if (ServerCmd(ServerIP, SvrPort, "S", "", "", "hostname > SVROS.TXT", 0) == 0) {
+				if (ServerCmd(ServerIP, SvrPort, "G", "SVROS.txt", "SVROS.TXT", "", 0) == 0) {			
+					memset(szSvrOSNM , 0x00, sizeof(szSvrOSNM ));
+					memset(szSvrNM   , 0x00, sizeof(szSvrNM   ));
+					memset(szSvrOSVer, 0x00, sizeof(szSvrOSVer));
+				    if ((SRCPTR = fopen("SVROS.txt", "r")) != (FILE *) NULL) {
+					    fgets(indat, 256, SRCPTR);
+						fclose (SRCPTR);
+						
+						sprintf(indat, "%s", rep_char(indat, "\r", ""));
+						sprintf(indat, "%s", rep_char(indat, "\n", ""));
+						sprintf(indat, "%s", trunc_char(indat));
+									
+						sprintf(szSvrNM, "%s", indat);
+					}
+				}
+			}
+			ServerCmd(ServerIP, SvrPort, "S", "", "", "\\rm SVROS.TXT", 0);
+			remove("SVROS.txt");
+
+			if (ServerCmd(ServerIP, SvrPort, "S", "", "", "whoami > SVRPWD.TXT", 0) == 0) {
+				if (ServerCmd(ServerIP, SvrPort, "G", "SVRPWD.txt", "SVRPWD.TXT", "", 0) == 0) {
+					memset(szSvrOSDir, 0x00, sizeof(szSvrOSDir));
+				    if ((SRCPTR = fopen("SVRPWD.txt", "r")) != (FILE *) NULL) {
+					    fgets(indat, 256, SRCPTR);
+						fclose (SRCPTR);
+						
+						sprintf(indat, "%s", rep_char(indat, "\r", ""));
+						sprintf(indat, "%s", rep_char(indat, "\n", ""));
+						sprintf(indat, "%s", trunc_char(indat));
+						strcpy(szSvrUser, indat);
+						
+				    }
+				}
+			}
+			ServerCmd(ServerIP, SvrPort, "S", "", "", "\\rm SVRPWD.TXT", 0);
+			remove("SVRPWD.txt");
+			
+
+			if (ServerCmd(ServerIP, SvrPort, "S", "", "", "pwd > SVRPWD.TXT", 0) == 0) {
+				if (ServerCmd(ServerIP, SvrPort, "G", "SVRPWD.txt", "SVRPWD.TXT", "", 0) == 0) {
+					memset(szSvrOSDir, 0x00, sizeof(szSvrOSDir));
+				    if ((SRCPTR = fopen("SVRPWD.txt", "r")) != (FILE *) NULL) {
+					    fgets(indat, 256, SRCPTR);
+						fclose (SRCPTR);
+						
+						sprintf(indat, "%s", rep_char(indat, "\r", ""));
+						sprintf(indat, "%s", rep_char(indat, "\n", ""));
+						sprintf(indat, "%s", trunc_char(indat));
+						strcpy(szSvrOSDir, indat);
+						
+				    }
+				}
+			}
+			ServerCmd(ServerIP, SvrPort, "S", "", "", "\\rm SVRPWD.TXT", 0);
+			remove("SVRPWD.txt");
+			
+			fprintf(stdout, "  [%s %s] [%s] [%-16s] [%6d] OK   [%-15s] [%-20s] [%s]\n", ssyscd, szSysMsg, szCodeName, ServerIP, SvrPort, szSvrNM, szSvrUser, szSvrOSDir);
+
+			/*---------------------------------------------------*/
+			/*	서버 디렉토리 정보 변경                          */
+			/*---------------------------------------------------*/
+			if (strlen(szSvrNM   ) > 0 &&
+				strlen(szSvrUser ) > 0 &&
+				strlen(szSvrOSDir) > 0 ) {
+				EXEC SQL 
+					UPDATE  CMM0031
+					   SET  CM_SVRNAME = :szSvrNM
+					      , CM_SVRUSR  = :szSvrUser
+					      , CM_DIR     = :szSvrOSDir
+					 WHERE  CM_SYSCD   = :ssyscd
+					   AND  CM_SVRCD   = :sSvrcd
+					   AND  CM_SVRIP   = TRIM(:ServerIP)
+					   AND  CM_PORTNO  = :SvrPort;
+				
+				EXEC SQL COMMIT;
+			}
+		}
+		DisConnectSocket (cSockId);
+		fflush (stdout);
+
+	    /*-------------------------------------------------------*/
+	    /*   시스템/서버별 Agent 상태 변경                       */
+	    /*-------------------------------------------------------*/
+		EXEC SQL
+			UPDATE  CMM0031
+		       SET  CM_Agent = :sRstCond
+         	 WHERE  CM_SysCD = :ssyscd
+           	   AND  CM_SvrCD = :sSvrcd
+           	   AND  CM_SvrIP = TRIM(:ServerIP)
+           	   AND	CM_PORTNO = :SvrPort
+           	   AND  CM_SVRSTOP = 'N'
+           	   AND  CM_CLOSEDT IS NULL;
+
+		EXEC SQL COMMIT;
+    }
+    EXEC SQL close SYSInfo;
+
+	fprintf(stdout, "\n");
+	fprintf(stdout, " ┌───────────────────────────────────────────┐\n");
+	fprintf(stdout, " │           CHECK 결과 --> 대상서버 : %3d대,  정상 : %3d대,  장애 : %3d대              │\n", nTotCnt, nOKCnt, nErrCnt);
+ 	fprintf(stdout, " └───────────────────────────────────────────┘\n");
+	fprintf(stdout, "\n");
+	fprintf(stdout, "\n");
+
+    EXEC SQL COMMIT WORK RELEASE;
+
+}
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

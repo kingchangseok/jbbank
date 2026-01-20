@@ -1,0 +1,263 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_prcanal.pc                             │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 영향분석으로 소스에 대하여 영향도있는 소스의 │
+ │            │ 담당자에게 통보하도록 영향분석 시스템과      │
+ │            │ 인터페이스                                   │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2011. 07. 19                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define DEBUG 1
+#define	dfMain	1
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include 	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+EXEC SQL BEGIN DECLARE SECTION;
+char    ConnStr2    [50];
+char    ConnName2   [10];
+EXEC SQL END DECLARE SECTION;
+
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*      	영향분석 시스템과의 인터페이스 처리 M A I N          */
+/*                                                               */
+/*****************************************************************/
+int	main (int argc, char **argv, char** envp)
+{
+char	szSysCD                [dfSysCD];
+int		szSerNo                         ;
+char	szRsrcCD              [dfRsrcCD];
+char	szDsnCD                [dfDsnCD];
+char	szRsrcName          [dfRsrcName];
+char	szEditor              [dfEditor];
+char	szUserName                 [512];
+char	szCommand                  [512];
+int		szSysStep                       ;
+char	szPrcSys              [dfPrcSys];
+char	szAcptNo              [dfAcptNo];
+char	szSvrIP                [dfSvrIP];
+int		szPortNo                        ;
+char	szSvrCD                [dfSvrCD];
+char	szSvrName              [dfSvrNM];
+char	szDbUsr                    [512];
+char	szDbPass                   [512];
+char	szConStr                   [512];
+int		szReturnVal = 0                 ;
+char	szRstCond            [dfRstCode];
+char	szRstFile           [dfFullPath];
+char	szResultMsg                [512];
+char	szTmpPath                [dfDir];
+char	szBaseNo              [dfAcptNo];
+char	szBaseNoTmp           [dfAcptNo];
+char	szPrjNo                [dfPrjNo];
+char	szPrjNm                    [512];
+char	szPlanDay                  [8+1];
+char	szNotify                   [1+1];
+int		szSvrSeq                        ;
+
+
+    if ( argc < 14) {
+        printf ("Usage : %s szPrcSys pAcptNo szSerNo szSysCD szDsnCD szRsrcCD szRsrcName szEditor szUserName szSysStep \n", argv[0]);
+        exit (0);
+	}
+
+	memset(szPrcSys  , 0x00, sizeof(szPrcSys  ));
+    memset(szAcptNo  , 0x00, sizeof(szAcptNo  ));
+    memset(szSysCD   , 0x00, sizeof(szSysCD   ));
+    memset(szDsnCD   , 0x00, sizeof(szDsnCD   ));
+	memset(szRsrcCD  , 0x00, sizeof(szRsrcCD  ));
+    memset(szRsrcName, 0x00, sizeof(szRsrcName));
+    memset(szEditor  , 0x00, sizeof(szEditor  ));
+    memset(szUserName, 0x00, sizeof(szUserName));
+    memset(szPrjNo   , 0x00, sizeof(szPrjNo   ));
+    memset(szPrjNm   , 0x00, sizeof(szPrjNm   ));
+    memset(szPlanDay , 0x00, sizeof(szPlanDay ));
+
+	strcpy(szPrcSys  , argv[1]);
+	strcpy(szAcptNo  , argv[2]);
+	strcpy(szSysCD   , argv[4]);
+	strcpy(szDsnCD   , argv[5]);
+	strcpy(szRsrcCD  , argv[6]);
+	strcpy(szRsrcName, argv[7]);
+	strcpy(szEditor  , argv[8]);
+	strcpy(szUserName, argv[9]);
+	strcpy(szPrjNo   , argv[11]);
+	strcpy(szPrjNm   , argv[12]);
+	strcpy(szPlanDay , argv[13]);
+	szSerNo   = atoi(argv[3]);
+	szSysStep = atoi(argv[10]);
+	strcpy(szNotify , argv[14]);
+	
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set									  		 */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	if (ConnectDB() == FALSE)
+		exit(1);
+
+	/*-----------------------------------------------------------*/
+	/*	파일 생성시 파일이 저장될 경로 설정및 생성               */
+	/*-----------------------------------------------------------*/
+	SetTempDir("99", szTmpPath);
+	NotUseDataTruncate (szTmpPath, 0x20);
+
+	sprintf(szRstCond, "%s", "0000");
+	
+	/*-----------------------------------------------------------*/
+	/*	영향분석 서버정보 조회                                   */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  A.CM_SVRIP
+		      , A.CM_PORTNO
+		      , A.CM_SVRCD
+		      , A.CM_SVRNAME
+		      , B.CM_DBUSER
+		      , B.CM_DBPASS
+		      , B.CM_DBCONN
+		      , A.CM_SEQNO
+		  INTO  :szSvrIP
+		  	  , :szPortNo
+		  	  , :szSvrCD
+		  	  , :szSvrName
+		  	  , :szDbUsr
+		  	  , :szDbPass
+		  	  , :szConStr
+		  	  , :szSvrSeq
+		  FROM  CMM0031 A
+		      , CMM0035 B
+		 WHERE  A.CM_SYSCD = :szSysCD
+		   AND  A.CM_SVRSTOP = 'N'
+		   AND  A.CM_CLOSEDT IS NULL
+		   AND  A.CM_SVRCD = '90'
+		   AND  A.CM_SYSCD = B.CM_SYSCD
+		   AND  A.CM_SVRCD = B.CM_SVRCD
+		   AND  A.CM_SEQNO = B.CM_SEQNO;
+
+	if (sqlca.sqlcode != 0) {
+		sprintf(gszLogMsg," [%s][%d] ecams_prcanal get Info Err : [%d]", szAcptNo,szSerNo, sqlca.sqlcode);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+
+		sprintf(szResultMsg,"[%s][%d] 영향분석 서버정보 오류", szAcptNo,szSerNo);
+		sprintf(szRstFile,"%s/%s.%d.result",szTmpPath,szAcptNo,szSerNo);
+		Result_Make(szRstFile,szResultMsg,szSvrIP,szPrcSys,szRstCond);
+		CMR1011_Make (szSysCD, szSvrIP, szAcptNo, szSerNo, szRstFile, szSysStep, szRstCond, szSvrName, szPrcSys,szSvrCD,szSvrSeq);
+		
+		EXEC SQL COMMIT WORK RELEASE;
+		
+		exit(1);
+	}
+
+	NotUseDataTruncate (szSvrIP  , 0x20);
+	NotUseDataTruncate (szSvrCD  , 0x20);
+	NotUseDataTruncate (szDbUsr  , 0x20);
+	NotUseDataTruncate (szDbPass , 0x20);
+	NotUseDataTruncate (szConStr , 0x20);
+	NotUseDataTruncate (szSvrName, 0x20);
+
+
+	memset(ConnStr2, 0x00, sizeof(ConnStr2));
+	sprintf(ConnStr2, "%s/%s@%s", szDbUsr, szDbPass, szConStr);
+	sprintf(ConnName2, "anal");
+
+	/*LOG*/sprintf(gszLogMsg,"[%s][%d] ecams_prcanal- Restart OK", szAcptNo,szSerNo);
+	eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+
+	EXEC SQL CONNECT :ConnStr2 AT :ConnName2;
+
+	if (sqlca.sqlcode != 0     &&
+		sqlca.sqlcode != 28002 ) {
+		sprintf(gszLogMsg,"[%s][%d] ecams_prcanal ANAL DB Connect Err [%s] %d %s", szAcptNo,szSerNo,ConnStr2, sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+
+		sprintf(szResultMsg,"[%s][%d] ecams_prcanal ANAL DB Connect Err", szAcptNo,szSerNo);
+	    sprintf(szRstFile,"%s/%s.%d.result",szTmpPath,szAcptNo,szSerNo);
+
+		Result_Make(szRstFile,szResultMsg,szSvrIP,szPrcSys,szRstCond);
+	    CMR1011_Make (szSysCD, szSvrIP, szAcptNo, szSerNo, szRstFile, szSysStep, szRstCond, szSvrName, szPrcSys,szSvrCD,szSvrSeq);
+	    EXEC SQL COMMIT WORK RELEASE;	
+	    EXEC SQL AT :ConnName2 COMMIT WORK RELEASE;	
+		exit(1);
+	}
+
+	if (cmp_mid_char(szAcptNo,5,2, REQ_CHECKOUT) == 0){
+		/*LOG*/sprintf(gszLogMsg,"[%s][%d] ecams_prcanal- SCM_IAM.IF31 Call", szAcptNo,szSerNo);
+		eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+
+		EXEC SQL AT :ConnName2 EXECUTE
+			BEGIN
+				:szReturnVal := SCM_IAM.IF31(:szDbUsr,:szAcptNo,:szEditor,:szUserName,:szSysCD,:szDsnCD,:szRsrcName,:szRsrcCD,:szPrjNo, :szPrjNm, :szPlanDay, :szNotify);
+			END;
+		END-EXEC;
+	}
+	else {
+		/*LOG*/sprintf(gszLogMsg,"[%s][%d] ecams_prcanal- SCM_IAM.IF31_CANCEL Call", szAcptNo,szSerNo);
+		eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+
+		EXEC SQL AT :ConnName2 EXECUTE
+			BEGIN
+				:szReturnVal := SCM_IAM.IF31_CANCEL(:szDbUsr,:szBaseNo,:szEditor,:szUserName,:szSysCD,:szDsnCD,:szRsrcName,:szRsrcCD);
+			END;
+		END-EXEC;
+	}
+
+	if (sqlca.sqlcode != 0) {
+		/*LOG*/sprintf(gszLogMsg,"[%s][%d] ecams_prcanal- SCM_IAM.IF31 Call Fail =[%d]", szAcptNo,szSerNo,sqlca.sqlcode);
+		eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+		/*LOG*/sprintf(gszLogMsg,"[%s][%d] [%s][%s][%s][%s][%s][%s][%s][%s]", szAcptNo,szSerNo,szDbUsr,szAcptNo,szEditor,szUserName,szSysCD,szDsnCD,szRsrcName,szRsrcCD);
+		eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+
+		sprintf(szResultMsg,"[%s][%d] ecams_prcanal- SCM_IAM.IF31 Call Fail =[%d]", szAcptNo,szSerNo,sqlca.sqlcode);
+		szReturnVal = -1;
+	}
+
+	if (szReturnVal >= 0) {
+		strcpy(szRstCond,"0000");
+		#if 0
+		if (szReturnVal == 0){
+			strcpy(szRstCond,"NONE");
+		}
+		#endif
+		sprintf(szResultMsg,"[%s][%d] ecams_prcanal- 완료 [%d]", szAcptNo,szSerNo, szReturnVal);
+	}
+	else {
+		sprintf(szRstCond,"%04d", abs(szReturnVal));
+	}
+	/*LOG*/sprintf(gszLogMsg,"[%s][%d] ecams_prcanal- 완료", szAcptNo,szSerNo);
+	eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+
+	sprintf(szRstFile,"%s/%s.%d.result",szTmpPath,szAcptNo,szSerNo);
+	Result_Make(szRstFile,szResultMsg,szSvrIP,szPrcSys,szRstCond);
+	CMR1011_Make (szSysCD, szSvrIP, szAcptNo, szSerNo, szRstFile, szSysStep, szRstCond, szSvrName, szPrcSys,szSvrCD,szSvrSeq);
+
+	EXEC SQL COMMIT WORK RELEASE;
+	EXEC SQL AT :ConnName2 COMMIT WORK RELEASE;
+				
+	exit(szReturnVal);
+}
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

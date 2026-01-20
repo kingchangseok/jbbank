@@ -1,0 +1,184 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_lockck.pc                              │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ eCAMS 신청자원의 처리                        │
+ │            │ Check Out/Check In (Compile)                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2013. 01. 14                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+
+#define DEBUG 1
+
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath             [dfDir];
+
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			신청자원의 처리   M A I N                            */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+char	OBJECT_NAME              [256+1];
+char	OBJECT_TYPE              [256+1];
+char	XIDUSN                   [256+1];
+char	LOCKED_MODE              [256+1];
+int 	SESSION_ID                      ;
+int 	nLockCnt                        ;
+char	strQuery                  [4000];
+char	strSubQuery               [4000];
+char	szgSysdate                  [20];
+char	szgSystime                  [20];
+int 	nInterval                       ;
+int 	nCkReqCnt                       ;
+int 	nCkCnt                          ;
+int 	nRetry                          ;
+char	szSQLTEXT                  [100];
+
+
+	if (argc != 3) {
+		fprintf(stderr, "Usage : %s <주기(분)> <횟수(0:계속)>\n", argv[0]);
+		exit (1);
+	}
+
+	nInterval = atoi(argv[1]);
+	nCkReqCnt = atoi(argv[2]);
+	nCkCnt = 0;
+
+
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+
+
+	memset(strQuery,0x00,sizeof(strQuery));
+	sprintf(strQuery, "%sSELECT  DO.OBJECT_NAME              \n", strQuery);
+	sprintf(strQuery, "%s      , DO.OBJECT_TYPE              \n", strQuery);
+	sprintf(strQuery, "%s      , VO.XIDUSN                   \n", strQuery);
+	sprintf(strQuery, "%s      , VO.LOCKED_MODE              \n", strQuery);
+	sprintf(strQuery, "%s      , VO.SESSION_ID               \n", strQuery);
+	sprintf(strQuery, "%s  FROM  V$LOCKED_OBJECT VO          \n", strQuery);
+	sprintf(strQuery, "%s      , DBA_OBJECTS DO              \n", strQuery);
+	sprintf(strQuery, "%s WHERE  VO.OBJECT_ID = DO.OBJECT_ID \n", strQuery);
+	sprintf(strQuery, "%s   AND  DO.OWNER = 'ECAMS'          \n", strQuery);
+
+	nRetry = 0;
+	while (1) {
+		EXEC SQL PREPARE SS FROM :strQuery;
+		EXEC SQL DECLARE LOCKLIST CURSOR FOR SS;
+		EXEC SQL OPEN LOCKLIST;
+
+	    memset (szgSysdate, 0x00, sizeof (szgSysdate));
+	    memset (szgSystime, 0x00, sizeof (szgSystime));
+	    Get_Sys_Date (szgSysdate);
+	    Get_Sys_Time (szgSystime);
+
+		fprintf(stdout, "DB LOCK CHECK [%s %s] \t", szgSysdate, szgSystime);	
+
+		nLockCnt = 0;
+	    while (1) {
+			EXEC SQL fetch LOCKLIST
+				INTO  :OBJECT_NAME
+				    , :OBJECT_TYPE
+				    , :XIDUSN     
+				    , :LOCKED_MODE
+				    , :SESSION_ID;
+	
+			if (sqlca.sqlcode == 1403)	break;
+	
+			if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+				break;
+			}
+			
+			NotUseDataTruncate(OBJECT_NAME, 0x20);
+			NotUseDataTruncate(OBJECT_TYPE, 0x20);
+			NotUseDataTruncate(XIDUSN     , 0x20);		
+			NotUseDataTruncate(LOCKED_MODE, 0x20);
+			
+			nLockCnt++;
+			if (nLockCnt == 1)	fprintf(stdout, "\n");
+			
+			fprintf(stdout, "%s\t%s\t%s\t%s\n", OBJECT_NAME, OBJECT_TYPE, XIDUSN, LOCKED_MODE);	
+	
+		}
+		EXEC SQL close LOCKLIST;
+			
+		if (nLockCnt == 0) {
+			fprintf(stdout, "LOCK 발생하지 않음 \n");
+			nRetry = 0;
+		}
+		else {
+			nRetry++;
+			fprintf(stdout, "------------------------------------------ [%d] %d\n", nRetry, SESSION_ID);
+			sleep(10);
+			continue;
+		}
+		
+		
+		if (nCkReqCnt > 0) {
+			nCkCnt++;
+			if (nCkCnt >= nCkReqCnt) {
+				break;
+			}
+		}
+		sleep (nInterval * 60);
+		
+	}
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit(0);
+}
+
+
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

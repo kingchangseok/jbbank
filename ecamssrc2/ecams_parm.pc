@@ -1,0 +1,371 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_parm.pc                                │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ JBNgels의 파라미터 이관을 위한 XML 작성      │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2013. 03. 14                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+typedef struct
+{
+	short len;
+	char  arr[100];
+} vr;
+
+/*---------------------------------------------------------------*/
+/*       Oracle Sql Bind 변수 DEFINE                             */
+/*---------------------------------------------------------------*/
+EXEC SQL BEGIN DECLARE SECTION;
+    EXEC SQL TYPE vr IS VARRAW(100);
+    vr my_vr;
+EXEC SQL END DECLARE SECTION;
+
+
+#define DEBUG 1
+
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+int 	Process_ParmCall		();
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath             [dfDir];
+
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			신청자원의 처리   M A I N                            */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+char	szAcptNo              [dfAcptNo]; /* eCAMS Log 접수번호  */
+char	szJobID               [dfPrcSys]; /* 처리 구분           */
+int 	szSerNo                         ; /* 일련번호            */
+char	szRstCond            [dfRstCode]; /* 처리 결과 받을 변수 */
+char	SysCmd                     [256];
+char	szSvrCD                [dfSvrCD];
+int 	nSvrSeq                         ;
+int 	retval                          ;
+int		nPid                            ;
+
+
+    if ( argc != 6 ) {
+        printf ("usage : %s <신청번호> <일련번호> <처리단계> <서버구분> <서버일련번호> \n", argv[0]);
+        exit (0);
+	}
+
+	memset(szAcptNo , 0x00, sizeof(szAcptNo ));
+    memset(szJobID  , 0x00, sizeof(szJobID  ));
+    memset(szRstCond, 0x00, sizeof(szRstCond));
+    memset(szSvrCD  , 0x00, sizeof(szSvrCD  ));
+
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	/*-----------------------------------------------------------*/
+	/* 	신청번호 , 시리얼번호 초기화	          			     */
+	/*-----------------------------------------------------------*/
+	sprintf(szAcptNo   , "%s", argv[1]);     /* 접수번호         */
+	szSerNo = atoi(argv[2]);
+	sprintf(szJobID, "%s", argv[3]);
+	sprintf(szSvrCD, "%s", argv[4]);
+	nSvrSeq = atoi(argv[5]);
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+
+	/*-----------------------------------------------------------*/
+	/*	ResultFile Dir 체크                                      */
+	/*-----------------------------------------------------------*/
+	SetTempDir("11", gszRsultPath);
+	Local_Dir_Make(gszRsultPath );
+
+	/*-----------------------------------------------------------*/
+	/*	신청 구분별 처리					                     */
+	/*-----------------------------------------------------------*/
+	memset(szRstCond, 0x00, sizeof(szRstCond));
+	retval = Process_ParmCall(szAcptNo, szSerNo, szJobID, szRstCond, szSvrCD, nSvrSeq);
+
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit(retval);
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : ProcessParmCall                                        */
+/*	Action    : 처리 단계별 처리 Function Call                   */
+/*  Parameter : pAcptNo  : 신청번호                              */
+/*              pSerNo   : 일련번호                              */
+/*              pJobID   : 처리단계                              */
+/*              pRstCond : 처리결과                              */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Process_ParmCall	( char *pAcptNo
+							, int   pSerNo
+							, char *pPrcSys
+							, char *pRstCond
+							, char *pSvrCD
+							, int 	nSvrSeq
+							)
+{
+char	szSvrIP                [dfSvrIP];
+char	szRstCond            [dfRstCode]; /* 처리 결과 받을 변수 */
+char	szRsrcName          [dfRsrcName];
+char	szRsrcCD              [dfRsrcCD];
+char	szdataType                 [100];
+char	szexeType                  [100];
+char	szdataPK            [dfRsrcName];
+char	szSysCmd            [dfFullPath];
+int 	retval                          ;
+int 	nErrCnt                         ;
+char	szSysCD                [dfSysCD];
+int		szSvrSeq                        ;
+char	szSvrCD                [dfSvrCD];
+char	szSvrName              [dfSvrNM];
+char	szRstFile           [dfFullPath];
+char	szRstFile1          [dfFullPath];
+char	szDummy             [dfFullPath];
+char	szDirPath                [dfDir];
+char	szSysDate	               [8+1];
+char	szNSysDate	              [10+1];
+char 	szSysTime                 [16+1];
+int 	ret                             ;
+char	szChangDirPath           [dfDir];
+char	szChangDirPathTmp        [dfDir];
+char	szPrcSys                    [10];
+char	szSysOS                [dfSysOS];
+FILE	*SrcPtr                         ;
+FILE	*RstPtr                         ;
+
+
+
+	memset(szRstCond, 0x00, sizeof(szRstCond));
+	sprintf(szRstCond, "%s", "0000");
+	
+
+	EXEC SQL DECLARE ParmCall_Rsrc CURSOR FOR
+		SELECT  A.CR_SYSCD
+		      , C.CM_SVRCD		      
+		      , C.CM_SVRIP
+		      , C.CM_SEQNO
+		      , C.CM_SVRNAME
+		      , C.CM_SYSOS
+		      , A.CR_RSRCCD
+		      , A.CR_RSRCNAME
+		      , E.CM_DIRPATH
+		  FROM  CMR1010 A
+		      , CMM0038 B
+		      , CMM0031 C
+		      , CMR1000 D
+		      , CMM0070 E
+		 WHERE  A.CR_ACPTNO = :pAcptNo
+		   AND  A.CR_SERNO  = :pSerNo
+		   AND  A.CR_ACPTNO = D.CR_ACPTNO
+		   AND  A.CR_SYSCD  = B.CM_SYSCD
+		   AND  A.CR_RSRCCD = B.CM_RSRCCD
+		   AND  B.CM_SVRCD  = DECODE(D.CR_QRYCD, '03', DECODE(:pPrcSys, 'SYSUP' , '01'
+		   	                                                          , 'SYSTS' , '13'
+		   	                                                          , 'SYSED' , '15'
+		   	                                                 )
+		   	                                         , DECODE(:pPrcSys, 'SYSUP' , '01'
+		   	                                                          , 'SYSTS' , '35'
+		   	                                                          , 'SYSED' , '05'
+		   	                                                 )
+		   	                        )        
+		   AND  B.CM_SYSCD  = C.CM_SYSCD
+		   AND  B.CM_SVRCD  = C.CM_SVRCD
+		   AND  B.CM_SEQNO  = C.CM_SEQNO
+		   AND  B.CM_SVRCD  = :pSvrCD
+		   AND  B.CM_SEQNO  = :nSvrSeq
+		   AND  A.CR_SYSCD  = E.CM_SYSCD
+		   AND  A.CR_DSNCD  = E.CM_DSNCD;
+	
+	nErrCnt = 0;	
+	EXEC SQL open  ParmCall_Rsrc;
+    while (1) {
+		EXEC SQL fetch ParmCall_Rsrc
+			INTO  :szSysCD  
+			    , :szSvrCD  
+			    , :szSvrIP
+			    , :szSvrSeq 
+			    , :szSvrName
+			    , :szSysOS
+				, :szRsrcCD
+				, :szRsrcName
+				, :szDirPath;
+
+		if (sqlca.sqlcode == 1403)	break;
+
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+			break;
+		}
+		
+		NotUseDataTruncate(szSysCD   , 0x20);
+		NotUseDataTruncate(szSvrCD   , 0x20);
+		NotUseDataTruncate(szSvrIP   , 0x20);		
+		NotUseDataTruncate(szSvrName , 0x20);
+		NotUseDataTruncate (szSysOS   ,	0x20);
+		NotUseDataTruncate(szRsrcCD  , 0x20);	
+		NotUseDataTruncate(szRsrcName, 0x20);
+		sprintf(szDirPath, "%s", trunc_char(szDirPath));
+		
+		ChangeVolPath(szSysCD , pSvrCD, szRsrcCD, szSvrSeq, szDirPath, szChangDirPathTmp);
+		if (cmp_right_char(szChangDirPathTmp, 1, "/") == 0) {
+			sprintf(szChangDirPathTmp, "%s", left_char(szChangDirPathTmp, strlen(szChangDirPathTmp) - 1));
+		}
+
+		/*-------------------------------------------------------*/
+		/*	OS종류별 디렉토리명 변환                             */
+		/*-------------------------------------------------------*/
+		Convert_WinDirPath (szSysOS, szChangDirPathTmp, szChangDirPath);
+
+
+		
+		/*-------------------------------------------------------*/
+		/*	결과파일명                                           */
+		/*-------------------------------------------------------*/
+		sprintf(szRstFile , "%s/%s.%d.%s.%d.result1", gszTempPath, pAcptNo, pSerNo, szSvrIP, szSvrSeq);		
+		sprintf(szRstFile1, "%s/%s.%d.%s.%d.result" , gszTempPath, pAcptNo, pSerNo, szSvrIP, szSvrSeq);		
+		if (strcmp(pPrcSys  , "SYSUP") == 0)
+			sprintf(szSysCmd, "java -cp $CLASSPATH Http_Call2 %s:9241/devonmgt/transstage.jsp 'xml' '%s' > %s", szSvrIP, szRsrcName, szRstFile);
+		else
+			sprintf(szSysCmd, "java -cp $CLASSPATH Http_Call2 %s:9241/devonmgt/transstage.jsp 'db' '%s/%s' > %s", szSvrIP, szChangDirPath, szRsrcName, szRstFile);
+		
+
+		/*LOG*/sprintf(gszLogMsg,"[%s][%d]PARMAMETER 연계 CALL [%s]", pAcptNo,pSerNo,szSysCmd);
+    	eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+ 
+		
+		retval = system(szSysCmd)/256;
+		
+		File_Encoding(szRstFile );
+		
+		if (retval == 0) {
+		    if ((SrcPtr = fopen(szRstFile, "r") ) == (FILE *) NULL) {
+		    	retval = 1;
+		    }
+		    
+		    if ((RstPtr = fopen(szRstFile1, "w") ) == (FILE *) NULL) {
+		    	retval = 1;
+		    }
+		    
+			if (retval == 0) {
+				Get_Sys_Date(szSysDate);
+				Conver_Date(szSysDate, szNSysDate);
+	
+				Get_Sys_Time20(szSysTime);
+				
+				fprintf(RstPtr, ">>> SERVER [%s] 작업처리내용 : [%s] [%s %s] <<<\n\n", szSvrIP, szRsrcName, szNSysDate,szSysTime);
+				
+				retval = 1;
+				
+			    memset(szDummy, 0x00, sizeof(szDummy));
+			    while (fgets(szDummy, 256, SrcPtr) != (char *) NULL) {
+			        sprintf(szDummy, "%s", rep_char(szDummy,"\n",""));
+					sprintf(szDummy, "%s", rep_char(szDummy,"\r",""));
+					sprintf(szDummy, "%s", trunc_char(szDummy));
+					
+					fprintf(RstPtr, "%s\n", szDummy);
+					
+					if (strlen(szDummy) == 0)	continue;
+						
+					ret = Char_Check(szDummy, ":");
+					if (ret < 0) {
+						retval = 1;
+						break;
+					}
+					
+					sprintf(szDummy, "%s", left_char(szDummy, ret));
+					sprintf(szDummy, "%s", trunc_char(szDummy));
+					if (strcmp(szDummy, "Y") != 0) {
+						retval = 1;
+					}
+					else {
+						retval = 0;
+					}
+			    }
+			    fclose (SrcPtr);
+			    					
+				fprintf(RstPtr, "\n\n");
+				fclose (RstPtr);
+			}
+		}
+				
+		strcpy(szRstCond,"0000");
+		
+		if (retval != 0) {
+			nErrCnt++;
+			strcpy(szRstCond,"EROR");
+		}
+		
+		Result_Make(szRstFile1, szSysCmd,szSvrIP,pPrcSys,szRstCond);
+		CMR1011_Make (szSysCD, szSvrIP, pAcptNo, pSerNo, szRstFile1, 2, szRstCond, szSvrName, pPrcSys,szSvrCD,szSvrSeq);
+
+		if (strcmp(pPrcSys  , "SYSUP") == 0 &&
+			strcmp(szRstCond, "0000" ) == 0 ) {
+			EXEC SQL
+				UPDATE  CMR1010
+				   SET  CR_SYSUPRST = NULL
+				      , CR_PUTCODE  = NULL
+				 WHERE  CR_ACPTNO   = :pAcptNo
+				   AND  CR_SERNO    = :pSerNo;
+		}
+
+	}
+	EXEC SQL close ParmCall_Rsrc;
+	
+	remove (szRstFile );
+	remove (szRstFile1);
+	
+	return (nErrCnt);	
+
+}
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

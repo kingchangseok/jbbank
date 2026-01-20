@@ -1,0 +1,611 @@
+/**
+ * 프로그램 상세 (eCmr0270.mxml)
+ * 
+ * 	작성자: 진가윤
+ * 	버전 : 1.0
+ *  수정일 : 2022-09-00
+ * 
+ */
+
+var pUserId 	= null;
+var pAcptNo	    = null;
+var pItemId	    = null;
+var pReqCd	    = null;
+
+var f = document.getReqData;
+pUserId = f.userId.value;
+pAcptNo = f.acptno.value;
+pItemId = f.itemid.value;
+pReqCd = pAcptNo.substr(4,2);
+
+var firstGrid		= new ax5.ui.grid();
+var secondGrid		= new ax5.ui.grid();
+
+var firstGridData		= [];
+var secondGridData		= [];
+var infoData			= [];
+var reqObj				= [];
+
+/* 업무지시서 추가/제거 modal */
+var addOrderModal	= new ax5.ui.modal();	
+var addOrderArr		= [];
+var addOrderData	= [];
+var addOrderFlag	= false;
+
+picker.bind(defaultPickerInfoLarge('txtReqDate', 'top'));
+picker.bind(defaultPickerInfoLarge('txtReqDate2', 'top'));
+
+var isCaller = false;
+var isAbled  = false;
+
+var aplydate = "";
+
+$('[data-ax5select="cboDeploy"]').ax5select({
+	option: []
+});
+$('[data-ax5select="cboNewGoods"]').ax5select({
+	option: []
+});
+$('[data-ax5select="cboTestYn"]').ax5select({
+	option: []
+});
+$('[data-ax5select="cboImportance"]').ax5select({
+	option: []
+});
+
+$('input.checkbox-detail').wCheck({theme: 'square-inset blue', selector: 'checkmark', highlightLabel: true});
+
+firstGrid.setConfig({
+    target: $('[data-ax5grid="firstGrid"]'),
+    sortable: true, 
+    multiSort: true,
+    multiselect: false,
+    showLineNumber: true,
+    lineNumberColumnWidth: 40,
+    page: false,
+    header: {
+        align: 'center'
+    },
+    body: {
+    	onClick: function () {
+        	this.self.clearSelect();
+            this.self.select(this.dindex);
+            firstGrid_Click();
+        },
+        onDBLClick: function () {
+        	if (this.dindex < 0) return;
+        },
+     	trStyleClass: function () {
+     		if (this.item.baseitem != this.item.cr_itemid) {
+     			return "fontStyle-module";
+     		}
+     	}
+    },
+    columns: [
+        {key: 'orderid', 	label: '지시번호',  	width: '45%',	align: 'center'},
+        {key: 'reqsub', 	label: '업무지시제목', 	width: '55%',	align: 'left'}
+    ]
+});
+
+secondGrid.setConfig({
+    target: $('[data-ax5grid="secondGrid"]'),
+    sortable: true, 
+    multiSort: true,
+    multiselect: false,
+    showLineNumber: true,
+    lineNumberColumnWidth: 40,
+    page: false,
+    header: {
+        align: 'center'
+    },
+    body: {
+    	onClick: function () {
+        	this.self.clearSelect();
+            this.self.select(this.dindex);
+            secondGrid_Click();
+        },
+        onDBLClick: function () {
+        	if (this.dindex < 0) return;
+        },
+     	trStyleClass: function () {
+     		if (this.item.baseitem != this.item.cr_itemid) {
+     			return "fontStyle-module";
+     		}
+     	}
+    },
+    columns: [
+        {key: 'cc_reqid', 	label: '요청번호',  	width: '45%',	align: 'center'},
+        {key: 'cc_docsubj', label: '개발요청제목', 	width: '55%',	align: 'left'}
+    ]
+});
+
+$(document).ready(function(){
+	enableComp(false);
+	$("#datDeploy").css("display","none");
+	$("#timeDeploy").css("display","none");
+	$('#chkComp').hide();
+	$("#datDeploy2").css("display","none");
+	$("#timeDeploy2").css("display","none");
+	
+	//수정
+	$('#btnReWrite').bind('click', function() {
+		btnReWrite_Click();
+	});
+	
+	//SR요청서보기
+	$('#btnSrApi').bind('click', function() {
+		btnSrApi_Click();
+	});
+	
+	//개발요청서보기
+	$('#btnView2').bind('click', function() {
+		if(reqObj.length == 0) return;
+		
+		if(reqObj.cc_doctype == '01' || reqObj.cc_doctype == '02' || reqObj.cc_doctype == '04' || reqObj.cc_doctype == '99') openWindow('1'); //개발요청상세(eCmc0401.mxml)
+		else if(reqObj.cc_doctype == '03') openWindow('2'); //외주개발요청상세(eCmc0411.mxml)
+	});
+	
+	//업무지시서 보기
+	$('#btnView1').bind('click', function() {
+		openWindow('3');
+	});
+
+	//업무지시서 추가/제거
+	$('#btnOrderAdd').bind('click', function() {
+		openAddOrderModal();
+	});
+	
+	//닫기
+	$('#btnClose').bind('click', function() {
+		close();
+	});
+	
+	$('#btnView1').prop("disabled", true);
+	
+	getCodeInfo();
+	getProgDetail();
+	getOrders();
+});
+
+function getCodeInfo() {
+	var codeInfos = getCodeInfoCommon([
+		new CodeInfo('REQPASS','','N'),
+		new CodeInfo('NEW/GLO','SEL','N'),
+		new CodeInfo('IMPORTANT','SEL','N'),
+	]);
+	cboDeployData = codeInfos.REQPASS;
+	cboNewGoodsData = codeInfos['NEW/GLO'];
+	cboImportanceData = codeInfos.IMPORTANT;
+	
+	$('[data-ax5select="cboDeploy"]').ax5select({
+		options: cboDeployData
+	});
+	$('[data-ax5select="cboNewGoods"]').ax5select({
+		options: cboNewGoodsData
+	});
+	$('[data-ax5select="cboImportance"]').ax5select({
+		options: cboImportanceData
+	});
+	
+	testYnSet();
+}
+
+function testYnSet() {
+	$('[data-ax5select="cboTestYn"]').ax5select({
+		options : [
+			{value: 00, text: "N"},
+			{value: 01, text: "Y"},
+		]
+	})
+	
+	$('[data-ax5select="cboTestYn"]').ax5select("setValue", '01', true);
+}
+
+function cboDeploy_Change() {
+	$("#datDeploy").css("display","none");
+	$("#timeDeploy").css("display","none");
+	if (getSelectedVal('cboDeploy').cm_micode == "4") {
+		$("#datDeploy").css("display","inline-block");
+		$("#timeDeploy").css("display","inline-block");
+		$('#chkComp').show();
+		$("#datDeploy2").css("display","inline-block");
+		$("#timeDeploy2").css("display","inline-block");
+		if (aplydate == "" || aplydate == null) {
+			$('#txtReqDate').val(getDate('DATE',0).substr(0,4)+'/'+getDate('DATE',0).substr(4,2)+'/'+getDate('DATE',0).substr(6));
+			$('#hourTxt').val('00');
+			$('#minTxt').val('00');
+		} else {
+			var tmp = infoData[0].cr_aplydate;
+			$('[data-ax5select="cboDeploy"]').ax5select("setValue", "2", true);
+			$('#txtReqDate').val(getDate('DATE',0).substr(0,4)+'/'+getDate('MONTH',-1).substr(4,2)+'/'+getDate('DATE',0).substr(6));
+			$('#hourTxt').val(tmp.substr(tmp.length-4, 2));
+			$('#minTxt').val(tmp.substr(tmp.length-2, 2));
+		}
+		
+		if (compdate == "" || compdate == null) {
+			$('#txtReqDate2').val(getDate('DATE',0).substr(0,4)+'/'+getDate('DATE',0).substr(4,2)+'/'+getDate('DATE',0).substr(6));
+			$('#hourTxt2').val('00');
+			$('#minTxt2').val('00');
+		} else {
+			var tmp = compdate;
+			$('#chkComp').wCheck("check", true);
+			$('#txtReqDate2').val(getDate('DATE',0).substr(0,4)+'/'+getDate('MONTH',-1).substr(4,2)+'/'+getDate('DATE',0).substr(6));
+			$('#hourTxt2').val(tmp.substr(tmp.length-4, 2));
+			$('#minTxt2').val(tmp.substr(tmp.length-2, 2));
+		}
+	} else {
+		$('#chkComp').hide();
+		$("#datDeploy2").css("display","none");
+		$("#timeDeploy2").css("display","none");
+	}
+}
+
+function getProgDetail() {
+	var data = new Object();
+	data = {
+		AcptNo : pAcptNo,
+		ItemId : pItemId,
+		requestType : 'getProgDetail'
+	}
+	ajaxAsync('/webPage/ecmr/Cmr0250Servlet', data, 'json', successGetProgDetail);
+}
+
+function successGetProgDetail(data) {
+	infoData = data;
+	if (infoData <= 0) {
+		dialog.alert("상세 정보 받기 실패");
+		return;
+	}
+	
+	var tmpObj = infoData[0];
+	$('#txtProg').val(tmpObj.cr_rsrcname);
+	$('#txtSayu').val(tmpObj.cr_editcon);
+	$('#txtInputCode').val(tmpObj.cr_dealcode);
+	
+	$('[data-ax5select="cboTestYn"]').ax5select("setValue", tmpObj.cr_testyn, true);
+	$('[data-ax5select="cboImportance"]').ax5select("setValue", tmpObj.cr_important, true);
+	$('[data-ax5select="cboNewGoods"]').ax5select("setValue", tmpObj.cr_newglo, true);
+	
+	if (tmpObj.cr_aplydate == "" || tmpObj.cr_aplydate == null) {
+		$('[data-ax5select="cboDeploy"]').ax5select("setValue", "0", true);
+		$("#reqGbnDiv2").css("display","none");
+		$('#chkComp').wCheck("check", false);
+	} else {
+		var tmp = tmpObj.cr_aplydate;
+		
+		//// 적용구분
+		$('[data-ax5select="cboDeploy"]').ax5select("setValue", "2", true);
+		$('#txtReqDate').val(getDate('DATE',0).substr(0,4)+'/'+getDate('DATE',0).substr(4,2)+'/'+getDate('DATE',0).substr(6));
+		$('#hourTxt').val(tmp.substr(tmp.length-4, 2));
+		$('#minTxt').val(tmp.substr(tmp.length-2, 2));
+		$("#reqGbnDiv").css("display","inline-block");
+		cboDeploy_Change();
+		
+		if(tmpObj.cr_compdate != "" && tmpObj.cr_compdate != null) {
+			compdate = tmpObj.cr_compdate;
+			//// 특정일시 적용
+			$('#txtReqDate2').val(getDate('DATE',0).substr(0,4)+'/'+getDate('DATE',0).substr(4,2)+'/'+getDate('DATE',0).substr(6));
+			$('#hourTxt2').val(tmp.substr(tmp.length-4, 2));
+			$('#minTxt2').val(tmp.substr(tmp.length-2, 2));
+			$('#chkComp').wCheck("check", true);
+			$("#reqGbnDiv2").css("display","inline-block");
+		}
+	}
+	
+	pItemId = tmpObj.cr_itemid;
+	
+	if(tmpObj.cr_status != "3" && tmpObj.cr_status != "9") isAbled = true;
+	
+	if(tmpObj.cr_editor == pUserId) isCaller = true;
+	
+	if(isCaller && isAbled) enableComp(true);
+	else enableComp(false);
+}
+
+function getOrders() {
+	var data = new Object();
+	data = {
+		AcptNo : pAcptNo,
+		ItemId : pItemId,
+		requestType : 'getOrders'
+	}
+	ajaxAsync('/webPage/ecmr/Cmr0250Servlet', data, 'json',successGetOrders);
+}
+
+function successGetOrders(data) {
+	if (data != undefined && data != null) {
+		if (typeof data == 'string' && data.indexOf('ERROR')>-1) {
+			dialog.alert(data);
+			return;
+		}
+	}
+	
+	firstGridData = data;
+	firstGrid.setData(firstGridData);
+}
+
+function firstGrid_Click() {
+	selectedGridItem = firstGrid.list[firstGrid.selectedDataIndexs];
+	// 개발요청서 보기
+	$('#btnView2').prop("disabled", true);
+	
+	if (firstGrid.selectedDataIndexs < 0 || firstGridData.length <= 0) {
+		// 업무지시서 보기
+		$('#btnView1').prop("disabled", true);
+		return;
+	} else {
+		orderId = selectedGridItem.orderid;
+		$('#btnView1').prop("disabled", false);
+	}
+	
+	var data = new Object();
+	data = {
+		OrderId : selectedGridItem.orderid,
+		requestType : 'getReqs'
+	}
+	ajaxReturnData = ajaxCallWithJson('/webPage/ecmr/Cmr0250Servlet', data, 'json');
+	
+	if (ajaxReturnData != undefined && ajaxReturnData != null) {
+		if (typeof ajaxReturnData == 'string' && ajaxReturnData.indexOf('ERROR')>-1) {
+			dialog.alert(ajaxReturnData);
+			return;
+		}
+	}
+	
+	secondGridData = ajaxReturnData;
+	secondGrid.setData(secondGridData);
+	
+	$('#btnView2').prop("disabled", true);
+	if(secondGridData.length > 0) reqObj = secondGridData[0];
+}
+
+function secondGrid_Click() {
+	gridSelectedIndex = secondGrid.selectedDataIndexs;
+	selectedGridItem = secondGrid.list[secondGrid.selectedDataIndexs];
+	
+	if (gridSelectedIndex < 0 || secondGridData.length <= 0) {
+		$('#btnView2').prop("disabled", true);
+		return;
+	}
+	orderId = selectedGridItem.cc_orderid;
+/*
+	if (selectedGridItem.cc_docnum === '자체발행'){ 
+		$('#btnView2').prop("disabled", true);
+	}else{
+		$('#btnView2').prop("disabled", false);
+	}
+*/
+
+	$('#btnView2').prop("disabled", false);
+	
+}
+
+function btnSrApi_Click() {
+	var wkSrID = "";
+
+	gridSelectedIndex = secondGrid.selectedDataIndexs;
+	selectedGridItem = secondGrid.list[secondGrid.selectedDataIndexs];
+	
+	if (secondGridData.length == 1) {
+		wkSrID =  secondGridData[0].cc_srreqid;
+		if(wkSrID == 'N'){
+			dialog.alert("SR연계된 요청서가 없습니다.");
+		}else{
+			window.open("https://cis.jbbank.co.kr/cis/sso/bizSvtLogin?SysDiv=SR&RedirectUrl=/p/request/"+wkSrID,'srOpenWeb',"scrollbars=1,toolbar=0,location=no,resizable=yes,status=0,menubar=0,width=1200,height=720,left=0,top=0");
+		}
+	}else if (secondGridData.length > 1) {
+		wkSrID = selectedGridItem.cc_srreqid;
+	}else{
+		dialog.alert("개발요청서를 선택하여 주시기 바랍니다.");
+	}
+}
+
+
+function btnReWrite_Click() {
+	if(getSelectedIndex('cboImportance') < 1) {
+		dialog.alert("중요도를 선택하여 주시기 바랍니다.");
+		return;
+	}
+	if(getSelectedIndex('cboNewGoods') < 1) {
+		dialog.alert("신상품/공통여부를 선택하여 주시기 바랍니다.");
+		return;
+	}
+	if($('#txtInputCode').val().trim().length == 0) {
+		dialog.alert("거래코드를 입력하여 주시기 바랍니다.");
+		$('#txtInputCode').focus();
+		return;
+	}
+	
+	var tmpArc = new Array();
+    if (firstGridData.length > 0){
+        for (var i = 0; i < firstGridData.length; i++){
+            var tmpObj = new Object();
+            tmpObj.seq = i + 1;
+            tmpObj.acptno = pAcptNo;
+            tmpObj.itemid = pItemId;
+            tmpObj.orderid = firstGridData[i].orderid;
+            tmpObj.reqsub = firstGridData[i].reqsub;
+                 
+            tmpArc.push(tmpObj);
+            tmpObj = null;
+        }
+    }
+    
+    var strDate = replaceAllString($("#txtReqDate").val(), "/", "");
+    var strDate2 = replaceAllString($("#txtReqDate2").val(), "/", "");
+    var time = $('#hourTxt').val() + $('#minTxt').val();
+    var time2 = $('#hourTxt2').val() + $('#minTxt2').val();
+	var today = getDate('DATE',0);
+	var todayTime = getTime();
+    
+        if (getSelectedVal('cboDeploy').cm_micode == "4") {
+            if ($('#txtReqDate') == null) {
+                dialog.alert("배포지정일시를 입력하여 주시기 바랍니다.");
+                return;
+            }
+            
+            if (strDate < today) {
+            	dialog.alert("배포지정일시가 현재일 이전입니다. 정확히 선택하여 주십시오");
+            	return;
+            } else if (strDate == today) {
+            	if (time < todayTime) {
+            		dialog.alert("배포지정일시가 현재일 이전입니다. 정확히 선택하여 주십시오");
+            		return;
+            	}
+            }
+            
+            if ($('#chkComp').is(":checked")) {
+            	if ($('#txtReqDate2') == null) {
+                    dialog.alert("특정일시컴파일 값을 입력하여 주시기 바랍니다.");
+                    return;
+                }
+
+            	if (strDate < today) {
+            		dialog.alert("컴파일지정일시가 현재일 이전입니다. 정확히 선택하여 주십시오");
+                 	return;
+            	} else if (strDate2 == today) {
+            		if(time2 < todayTime) {
+            			dialog.alert("컴파일지정일시가 현재일 이전입니다. 정확히 선택하여 주십시오");
+            			return;
+            		}
+                }
+            }
+        }
+        
+        var strCompDate = "";
+        var tempObj = new Object();
+        var strReqDate = $('#txtReqDate').val() + $('#hourTxt').val() + $('#minTxt').val(); 
+       
+        if ($('#chkComp').is(":checked")) {
+        	strCompDate = $('#txtReqDate2').val() + $('#hourTxt2').val() + $('#minTxt2').val();
+        	strCompDate = replaceAllString(strCompDate, "/", "");
+        }
+        else {
+        	strCompDate = "";
+        }
+        
+        if (getSelectedIndex('cboDeploy') == 1)
+            tempObj.aplydate = "";
+        else {
+        	strReqDate = replaceAllString(strReqDate, "/", "");
+            tempObj.aplydate = strReqDate;
+        }    
+        
+        tempObj.newglo  = getSelectedVal('cboNewGoods').cm_micode;
+        tempObj.testyn = getSelectedVal('cboTestYn').value;
+        tempObj.important = getSelectedVal('cboImportance').cm_micode;
+        tempObj.editcon = $('#txtSayu').val().trim();
+        tempObj.dealcode = $('#txtInputCode').val().trim();
+        tempObj.compdate = strCompDate;
+        
+        data = {
+        	AcptNo : pAcptNo,
+        	ItemId : pItemId,
+        	etcData1 : tempObj,
+        	etcData2 : tmpArc,
+        	requestType : 'setProgDetail'
+        }
+        ajaxAsync('/webPage/ecmr/Cmr0250Servlet', data, 'json', successSetProgDeatil);
+}
+
+function successSetProgDeatil(data) {
+	if(data == "Yes") dialog.alert("수정 완료");
+	else dialog.alert("수정 실패");
+}
+
+function enableComp(isTrue) {
+	$('#txtProg').attr("readonly", true);
+	
+	if (isTrue) {
+		$('[data-ax5select="cboDeploy"]').ax5select("enable");
+		$('[data-ax5select="cboRsrcCd"]').ax5select("enable");
+		$('[data-ax5select="cboNewGoods"]').ax5select("enable");
+		$('[data-ax5select="cboTestYn"]').ax5select("enable");
+		$('[data-ax5select="cboImportance"]').ax5select("enable");
+		$('#txtSayu').prop("disabled", false);
+		$('#txtInputCode').prop("disabled", false);
+		$('#btnOrderAdd').show();
+		$('#btnOrderAdd').prop("disabled", false);
+		$('#btnReWrite').show();
+		$('#btnReWrite').prop("disabled", false);
+		$('#chkComp').wCheck("disabled", false);
+		$('#txtReqDate2').prop("disabled", false);
+		$('#btnReqDate2').prop("disabled", false);
+	} else {
+		$('[data-ax5select="cboDeploy"]').ax5select("disable");
+		$('[data-ax5select="cboRsrcCd"]').ax5select("disable");
+		$('[data-ax5select="cboNewGoods"]').ax5select("disable");
+		$('[data-ax5select="cboTestYn"]').ax5select("disable");
+		$('[data-ax5select="cboImportance"]').ax5select("disable");
+		$('#txtSayu').prop("disabled", true);
+		$('#txtInputCode').prop("disabled", true);
+		$('#btnOrderAdd').hide();
+		$('#btnReWrite').hide();
+		$('#btnReWrite').prop("disabled", true);
+		$('#chkComp').wCheck("disabled", true);
+		$('#txtReqDate2').prop("disabled", true);
+		$('#btnReqDate2').prop("disabled", true);
+	}
+}
+
+function openAddOrderModal() {
+	addOrderArr = clone(firstGridData);
+	setTimeout(function() {
+		addOrderModal.open({
+			width: 800,
+			height: 600,
+			iframe: {
+				method: "get",
+				url: "../modal/AddOrderModal.jsp"
+			},
+			onStateChanged: function () {
+				if (this.state === "open") {
+					mask.open();
+				}
+				else if (this.state === "close") {
+					if (addOrderFlag) {
+						firstGridData = clone(addOrderData);
+					}
+					firstGrid.setData(firstGridData);
+					mask.close();
+				}
+			}
+		}, function () {
+			
+		});
+	}, 200);
+}
+
+function openWindow(type) {
+	var nHeight, nWidth, cURL, winName;
+
+	if ( ('pop_'+type) == winName ) {
+		if (myWin != null) {
+	        if (!myWin.closed) {
+	        	myWin.close();
+	        }
+		}
+	}
+	
+	winName = type+'_pop_'+pReqCd;
+
+    nWidth  = 1046;
+	nHeight = 700;
+	
+	selectedGridItem = firstGrid.list[firstGrid.selectedDataIndexs];
+	var f = document.setReqData;
+	f.user.value = pUserId;
+	f.orderId.value = selectedGridItem.orderid;
+	
+	if (type === '1') {//개발요청상세(eCmc0401.mxml)
+		cURL = "/webPage/winpop/PopDevRequestDetail.jsp";
+	} else if (type === '2') {//외주개발요청상세(eCmc0411.mxml)
+		cURL = "/webPage/winpop/PopOutSourcingDetail.jsp";
+	} else if (type === '3') {
+		cURL = "/webPage/winpop/PopOrderListDetail.jsp";
+	} else {
+		confirmDialog2.alert('window open - popup: invalid type ['+type+'] error', function(){return;});
+	}
+    
+    myWin = winOpen(f, winName, cURL, nHeight, nWidth);
+}

@@ -1,0 +1,404 @@
+/*-----------------------------------------------------------------
+ ┌──────┬────────────────────────┐
+ │ 프로그램명 │ ecams_diff_list.pc                             │
+ ├──────┼────────────────────────┤
+ │ 기      능 │ 형상관리관리소스와 각서버의 소스간에 비교      │
+ ├──────┼────────────────────────┤
+ │ 작  성  일 │ 2010. 08. 10                                   │
+ ├──────┼────────────────────────┤
+ │ 작  성  자 │ 최   병   남                                   │
+ └──────┴────────────────────────┘
+-----------------------------------------------------------------*/
+
+
+#define		dfMain  1
+
+
+/*---------------------------------------------------------------*/
+/*		HEADER  FILE  INCLUDE                                    */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+int		File_Compare				();
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	**gEnvp                         ;
+char	sysdate                      [9];
+
+
+/*****************************************************************/
+/*                                                               */
+/*	   형상관리관리소스와 각서버의 소스간에 비교 처리 M A I N    */
+/*                                                               */
+/*****************************************************************/
+int		main(int argc, char **argv, char **envp)
+{
+char	arSysCD                [dfSysCD];
+char	arPath                   [dfDir];
+int		diffType = 0;   /* diffType == 0  대상 전체, 1 업무 전체, 2 업무,디렉토리*/
+char	szSysCD[dfSysCD];
+char	szSvrIP[dfSvrIP];
+int		nPortNo;
+int 	nSvrSeq                         ;
+char	szRsrcCD              [dfRsrcCD];
+char	szDirPath[dfDir];
+char	szSysOS[3];
+char	QryStr[4096];
+char	szChangePath        [dfDir];
+char	szSvrCD    [dfSvrCD];
+char	szItemID   [dfItemID];
+char	szRsrcName [dfRsrcName];
+char	szFileDate                [14+1];
+int 	nFileSize                       ;
+char	szStatus                   [1+1];
+char	szAcptNo              [dfAcptNo];
+FILE 	*fp;
+int		nRst;
+char sSYSTIME	[15];
+char	gSysCD			  	  [dfSysCD];    /* 시스템                  */
+char	gBasicDT		     [20];    /* 기준일자                */
+char	gEditor				 [20];    /* 처리자 ID               */
+int 	nSeqNo                   ;
+char 	szDsnCD                [dfDsnCD];
+char	szSvrNM                [dfDsnCD];
+CMD_INFO CmdInfo;
+
+
+	if (argc != 3) {
+		fprintf(stderr, "Usage : %s <시스템> <처리자 ID> \n", argv[0]);
+		exit (1);
+	}
+
+	sprintf(gSysCD  , "%s", argv[1]);    /* 시스템               */
+	sprintf(gEditor , "%s", argv[2]);    /* 처리자 ID            */
+
+	NotUseDataTruncate(gSysCD    , 0x20);
+	NotUseDataTruncate(gEditor   , 0x20);
+
+	gEnvp = envp;
+	InitCmdInfo(&CmdInfo);		
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+    
+	Get_Sys_Date (sysdate);
+	sprintf(gszLogPath,"LogMessage/");
+	sprintf(gszLogFile,"%s.log",sysdate);
+	sprintf(CmdInfo.szLogFile,"%sTransList.%s",gszLogPath,gszLogFile);
+	
+    SetTempDir("99", gszTempPath);
+    
+	/*-----------------------------------------------------------*/
+    /*   요청일시 조회                                           */
+    /*-----------------------------------------------------------*/
+    EXEC SQL
+    	SELECT  TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS')
+    	  INTO  :gBasicDT
+    	  FROM  DUAL;
+    	  
+	NotUseDataTruncate(gBasicDT, 0x20);
+	
+	/*-----------------------------------------------------------*/
+    /*   DIFFLIST 수행기록 작성                                  */
+    /*-----------------------------------------------------------*/
+    EXEC SQL
+    	SELECT  LPAD(NVL(MAX(CD_ACPTNO), 0) + 1, 12, '0')
+    	  INTO  :szAcptNo
+    	  FROM  CMD0021;
+    	  
+	NotUseDataTruncate(szAcptNo, 0x20);
+	
+	
+	EXEC SQL
+		INSERT INTO CMD0021
+			( CD_ACPTNO
+			, CD_SYSCD 
+ 			, CD_BASICDT  
+ 			, CD_EDITOR   
+ 			, CD_DIFFDATE
+ 			)
+ 		VALUES
+ 			( :szAcptNo
+ 			, :gSysCD    
+			, :gBasicDT  
+			, :gEditor   
+			, SYSDATE)
+			;
+	
+	if (sqlca.sqlcode != 0) {
+		fprintf(stderr, "CMD0021 INSERT ERROR : [%d] [%s] [%s] [%s] [%s] [%s]\n",
+				 		sqlca.sqlcode
+						,sqlca.sqlerrm.sqlerrmc
+						,szAcptNo
+ 			, gSysCD    
+			, gBasicDT  
+			, gEditor   );
+			
+		exit (1);
+	}
+	EXEC SQL COMMIT;
+	
+	EXEC SQL	
+		INSERT  INTO  CMD0020
+				( CD_ACPTNO
+				, CD_SEQNO
+				, CD_SYSCD
+				, CD_RSRCNAME
+				, CD_DSNCD
+				, CD_SVRCD
+				, CD_SVRIP
+				, CD_SVRNAME
+				, CD_DIFFRST
+				, CD_DIFFDT
+				, CD_SVRSEQ
+				, CD_DIRPATH
+				, CD_FILEDATE
+				, CD_FILESIZE
+				)	
+	    SELECT  DISTINCT     
+	            :szAcptNo
+	          , ROWNUM
+	          , D.CR_SYSCD                    
+		      , D.CR_RSRCNAME                   
+		      , D.CR_DSNCD                      
+		      , '00'              
+		      , 'eCAMS'
+		      , '형상관리'                 
+		      , '0'
+		      , SYSDATE
+		      , 0
+		      , E.CM_DIRPATH                 
+		      , F.CR_FILEDATE                
+		      , F.CR_FILESIZE                
+		  FROM  CMR0020 D                    
+		      , CMM0070 E                    
+		      , CMR0021 F                    
+		 WHERE  D.CR_SYSCD  = D.CR_SYSCD     
+		   AND  D.CR_RSRCCD = D.CR_RSRCCD    
+		   AND  D.CR_SYSCD  = E.CM_SYSCD     
+		   AND  D.CR_DSNCD  = E.CM_DSNCD     
+		   AND  D.CR_ITEMID = F.CR_ITEMID    
+		   AND  D.CR_LSTVER = F.CR_VER       
+		   AND  D.CR_SYSCD  = :gSysCD;
+
+	EXEC SQL
+		SELECT  NVL(MAX(CD_SEQNO), 0)
+		  INTO  :nSeqNo
+		  FROM  CMD0020
+		 WHERE  CD_ACPTNO = :szAcptNo;
+		 	
+		
+    memset (QryStr, 0x00,  sizeof(QryStr));
+        
+	sprintf(QryStr, "%s SELECT  DISTINCT                     \n", QryStr);
+	sprintf(QryStr, "%s         A.CM_SYSCD                   \n", QryStr);
+	sprintf(QryStr, "%s       , A.CM_SVRIP                   \n", QryStr);
+	sprintf(QryStr, "%s       , A.CM_SVRNAME                 \n", QryStr);
+	sprintf(QryStr, "%s       , A.CM_PORTNO                  \n", QryStr);
+	sprintf(QryStr, "%s       , A.CM_SEQNO                   \n", QryStr);
+	sprintf(QryStr, "%s       , A.CM_SVRCD                   \n", QryStr);
+	sprintf(QryStr, "%s       , A.CM_SYSOS                   \n", QryStr);
+	sprintf(QryStr, "%s       , D.CR_ITEMID                  \n", QryStr);
+	sprintf(QryStr, "%s       , D.CR_DSNCD                   \n", QryStr);
+	sprintf(QryStr, "%s       , D.CR_RSRCCD                  \n", QryStr);
+	sprintf(QryStr, "%s       , D.CR_RSRCNAME                \n", QryStr);
+	sprintf(QryStr, "%s       , E.CM_DIRPATH                 \n", QryStr);
+	sprintf(QryStr, "%s       , F.CR_FILEDATE                \n", QryStr);
+	sprintf(QryStr, "%s       , F.CR_FILESIZE                \n", QryStr);
+	sprintf(QryStr, "%s   FROM  CMM0031 A                    \n", QryStr);
+	sprintf(QryStr, "%s       , CMM0038 B                    \n", QryStr);
+	sprintf(QryStr, "%s       , CMM0036 C                    \n", QryStr);
+	sprintf(QryStr, "%s       , CMR0020 D                    \n", QryStr);
+	sprintf(QryStr, "%s       , CMM0070 E                    \n", QryStr);
+	sprintf(QryStr, "%s       , CMR0021 F                    \n", QryStr);
+	sprintf(QryStr, "%s  WHERE  A.CM_CLOSEDT IS NULL         \n", QryStr);
+	sprintf(QryStr, "%s    AND  A.CM_SVRCD NOT IN ('01','90')\n", QryStr);
+	sprintf(QryStr, "%s    AND  A.CM_SYSCD  = B.CM_SYSCD     \n", QryStr);
+	sprintf(QryStr, "%s    AND  A.CM_SVRCD  = B.CM_SVRCD     \n", QryStr);
+	sprintf(QryStr, "%s    AND  A.CM_SEQNO  = B.CM_SEQNO     \n", QryStr);
+	sprintf(QryStr, "%s    AND  B.CM_SYSCD  = C.CM_SYSCD     \n", QryStr);
+	sprintf(QryStr, "%s    AND  B.CM_RSRCCD = C.CM_RSRCCD    \n", QryStr);
+	sprintf(QryStr, "%s    AND  C.CM_SYSCD  = D.CR_SYSCD     \n", QryStr);
+	sprintf(QryStr, "%s    AND  C.CM_RSRCCD = D.CR_RSRCCD    \n", QryStr);
+	sprintf(QryStr, "%s    AND  D.CR_SYSCD  = E.CM_SYSCD     \n", QryStr);
+	sprintf(QryStr, "%s    AND  D.CR_DSNCD  = E.CM_DSNCD     \n", QryStr);
+	sprintf(QryStr, "%s    AND  D.CR_ITEMID = F.CR_ITEMID    \n", QryStr);
+	sprintf(QryStr, "%s    AND  D.CR_LSTVER = F.CR_VER       \n", QryStr);
+	sprintf(QryStr, "%s    AND  D.CR_SYSCD  = '%s'           \n", QryStr, gSysCD);
+	sprintf(QryStr, "%s  ORDER  BY D.CR_RSRCCD, D.CR_RSRCNAME, A.CM_SVRCD, A.CM_SVRIP  \n", QryStr);
+    
+    fprintf(stdout,"QryStr=[%s]\n",QryStr);
+
+	EXEC SQL PREPARE S FROM :QryStr;
+	EXEC SQL DECLARE DIFFLIST01 CURSOR FOR S;
+	EXEC SQL OPEN DIFFLIST01;
+		
+    while (1) {
+   		EXEC SQL fetch DIFFLIST01 
+			INTO  :szSysCD
+				, :szSvrIP
+				, :szSvrNM
+				, :nPortNo
+				, :nSvrSeq
+				, :szSvrCD
+				, :szSysOS
+				, :szItemID
+				, :szDsnCD
+				, :szRsrcCD
+				, :szRsrcName
+				, :szDirPath
+				, :szFileDate
+				, :nFileSize;
+	
+		if (sqlca.sqlcode == 1403)	break;
+
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+			fprintf (stderr, "SQL ERROR  1 %s\n", sqlca.sqlerrm.sqlerrmc);
+			break;
+		}
+
+		NotUseDataTruncate(szSysCD   , 0x20);
+		NotUseDataTruncate(szSvrIP   , 0x20);
+		NotUseDataTruncate(szSvrNM   , 0x20);
+		NotUseDataTruncate(szSvrCD   , 0x20);	
+		NotUseDataTruncate(szSysOS   , 0x20);	
+		NotUseDataTruncate(szItemID  , 0x20);	
+		NotUseDataTruncate(szDsnCD   , 0x20);	
+		NotUseDataTruncate(szRsrcCD  , 0x20);	
+		NotUseDataTruncate(szRsrcName, 0x20);	
+		NotUseDataTruncate(szDirPath , 0x20);
+		NotUseDataTruncate(szFileDate, 0x20);
+		
+		/*-------------------------------------------------------*/
+		/*	소켓 버퍼사이즈 SET                                  */
+		/*-------------------------------------------------------*/
+		if (Server_Buff_Size(szSysCD, szSvrCD, nSvrSeq) == FALSE) {
+		    exit (1);
+		}
+	
+		
+		ChangeVolPath(szSysCD, szSvrCD, szRsrcCD, nSvrSeq, szDirPath, szChangePath);
+
+		sprintf(CmdInfo.szJobGub, "I");
+		sprintf(CmdInfo.szServerIP,"%s",szSvrIP);
+		CmdInfo.nPort = nPortNo;
+		sprintf(CmdInfo.szCommand, "%s/%s", szChangePath, szRsrcName);		
+		Server_Cmd_JOB(&CmdInfo);
+
+		if (strcmp(CmdInfo.szRstCond, "SVER") == 0) {
+			sprintf(szStatus, "%s", "1");
+		}
+		else
+		if (strcmp(CmdInfo.szRstCond, "0000") == 0) {
+			if (strcmp(szFileDate, CmdInfo.szFileDate) < 0) {
+				sprintf(szStatus, "%s", "2");
+				sprintf(szStatus, "%s", "0");
+			}
+			else
+			if (nFileSize != CmdInfo.lFileSize) {
+				sprintf(szStatus, "%s", "3");
+			}
+			else {
+				sprintf(szStatus, "%s", "0");
+			}
+		}
+		else {
+			sprintf(szStatus, "%s", "9");
+		}
+		
+		++nSeqNo;
+		
+		EXEC SQL
+			INSERT  INTO  CMD0020
+				( CD_ACPTNO
+				, CD_SEQNO
+				, CD_SYSCD
+				, CD_RSRCNAME
+				, CD_DSNCD
+				, CD_SVRCD
+				, CD_SVRIP
+				, CD_SVRNAME
+				, CD_DIFFRST
+				, CD_DIFFDT
+				, CD_SVRSEQ
+				, CD_DIRPATH
+				, CD_FILEDATE
+				, CD_FILESIZE
+				)
+			VALUES
+				( :szAcptNo
+				, :nSeqNo
+				, :gSysCD
+				, :szRsrcName
+				, :szDsnCD
+				, :szSvrCD
+				, :szSvrIP
+				, :szSvrNM
+				, :szStatus
+				, SYSDATE
+				, :nSvrSeq
+				, :szChangePath
+				, :CmdInfo.szFileDate
+				, :CmdInfo.lFileSize
+				);
+
+		EXEC SQL
+			UPDATE  CMD0020
+			   SET  CD_DIFFRST  = :szStatus
+			 WHERE  CD_ACPTNO   = :szAcptNo
+	           AND  CD_SYSCD    = :gSysCD
+	           AND  CD_DSNCD    = :szDsnCD
+	           AND  CD_RSRCNAME = :szRsrcName
+	           AND  CD_SVRCD    = :szSvrCD;
+		
+		EXEC SQL COMMIT;
+	}
+    EXEC SQL close DIFFLIST01 ;
+
+
+
+	EXEC SQL
+		UPDATE  CMD0021
+		   SET  CD_STATUS = '9'
+		      , CD_PRCDT  = SYSDATE
+		 WHERE  CD_ACPTNO = :szAcptNo;
+	
+	EXEC SQL COMMIT WORK RELEASE;
+	
+
+	exit(0);
+}
+/* 
+	CD_STATUS = 0 : 정상
+	CD_STATUS = 1 : Agent이상
+	CD_STATUS = 2 : 파일 날짜 이상
+	CD_STATUS = 3 : 파일 크기 이상
+	CD_STATUS = 9 : 검증 실패
+*/
+
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

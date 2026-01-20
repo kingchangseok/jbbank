@@ -1,0 +1,1 @@
+$('input:checkBox[name=headerCheck]').wCheck({theme: 'square-inset blue', selector: 'checkmark', highlightLabel: true});

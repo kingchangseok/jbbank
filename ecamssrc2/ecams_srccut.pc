@@ -1,0 +1,159 @@
+/*-----------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_srccut.c                               │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 소스의 특정라인을 파일로 작성                │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2012. 10. 10                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+
+/*---------------------------------------------------------------*/
+/*       INTERNAL  FUNCTION  DEFINE                              */
+/*---------------------------------------------------------------*/
+
+
+/*---------------------------------------------------------------*/
+/*    User Work 변수                                             */
+/*---------------------------------------------------------------*/
+char	**gEnvp                         ; /* Parameter 죵료용    */
+extern int	errno                       ; /* 시스템 오류코드     */
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*		소스의 특정라인을 파일로 작성 처리   M A I N             */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char **envp)
+{
+char	szAcptNo              [dfAcptNo];
+char	szItemID              [dfItemID];
+char	szRsrcName          [dfRsrcName];
+char	szReqPath                [dfDir];
+int 	szSerNo                         ;
+char	szSrcFile           [dfFullPath];
+char	szDstFile           [dfFullPath];
+int 	szFromLine                      ;
+int 	szToLine                        ;
+int 	szInputLine                     ;
+int 	szCurrLine                      ;
+char	dummy                     [1024];
+FILE	*ScrPtr                         ;
+FILE	*DstPtr                         ;
+
+
+    if (argc != 5) {
+        printf ("\nUSAGE : %s <신청번호> <ITEMID> <Line> <결과파일>\n", argv[0]);
+        exit (1);
+    }
+
+	sprintf(szAcptNo, "%s", argv[1]);
+	sprintf(szItemID, "%s", argv[2]);
+	szInputLine = atoi(argv[3]);
+	sprintf(szDstFile, "%s", argv[4]);
+	
+	if (szInputLine > 5) {
+		szFromLine = szInputLine - 5;
+		szToLine   = szInputLine + 5;
+	}
+	else {
+		szFromLine = 1;
+		szToLine   = szInputLine + 5;
+	}
+	
+	szCurrLine = 0;
+	
+	/*-----------------------------------------------------------*/
+	/* 	신청번호 , 시리얼번호 초기화	          			     */
+	/*-----------------------------------------------------------*/
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("77",szReqPath);
+	strcat(szReqPath, szAcptNo);
+
+	/*-----------------------------------------------------------*/
+    /*   신청 일련번호 조회                                      */
+    /*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  CR_SERNO
+		      , CR_RSRCNAME
+		  INTO  :szSerNo
+		  	  , :szRsrcName
+		  FROM  CMR1010
+		 WHERE  CR_ACPTNO = :szAcptNo
+		   AND  CR_ITEMID = :szItemID;
+		   	
+	if (sqlca.sqlcode != 0)
+		exit (1);
+		
+	NotUseDataTruncate (szRsrcName, 0x20);
+	
+	sprintf(szSrcFile, "%s/%s.%s.%d", szReqPath, szRsrcName, szAcptNo, szSerNo);
+
+    /*-----------------------------------------------------------*/
+    /*   Make File Name Find                                     */
+    /*-----------------------------------------------------------*/
+    if ((ScrPtr = fopen(szSrcFile,"r")) == (FILE *) NULL) {
+	    printf("FILE OPEN ERROR!! \n");
+        exit (1);
+    }
+    
+    /*-----------------------------------------------------------*/
+    /*   Make File Name Find                                     */
+    /*-----------------------------------------------------------*/
+    if ((DstPtr = fopen(szDstFile,"w")) == (FILE *) NULL) {
+	    printf("FILE OPEN ERROR!! \n");
+        exit (1);
+    }
+    
+    while (fgets(dummy, 1024, ScrPtr) != (char *) NULL) {
+    	szCurrLine++;
+        if (szCurrLine < szFromLine)	continue;
+        if (szCurrLine > szToLine  )	break;
+        	
+		fprintf(DstPtr, "%d  %s", szCurrLine, dummy);
+    }
+    fclose (ScrPtr);
+    fclose (DstPtr);
+    
+    EXEC SQL ROLLBACK WORK RELEASE;
+    
+	exit (0);
+
+}
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

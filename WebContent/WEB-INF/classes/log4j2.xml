@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+	<!-- DEBUG < INFO < WRAN < ERROR < FATAL -->
+	<Appenders>
+		<Console name="console" target="SYSTEM_OUT">
+			<PatternLayout pattern="%d %-5p (%13F:%L) - %m%n"/>
+		</Console>
+		
+		<RollingFile name="eCAMS">
+			<FileName>/home/ecams/apache-tomcat-8.5.78/logs/ecamsweb.log</FileName>
+			<FilePattern>/home/ecams/apache-tomcat-8.5.78/logs/ecamsweb.log.%d{yyyy-MM-dd}</FilePattern>
+			<PatternLayout pattern="%style{%d{yyyy/MM/dd HH:mm:ss,SSS}}{cyan} %highlight{[%-5p]}{FATAL=bg_red, ERROR=red, INFO=green, DEBUG=blue} %style{[%l]}{yellow}- %m%n"/>
+			<Policies>
+				<!-- 1일마다 rolling, FilePattern에 따라 1초, 1분, 1일 -->
+				<TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+			</Policies>
+			<LevelRangeFilter minLevel="ERROR" maxLevel="ERROR" onMatch="ACCEPT" onMismatch="DENY"/>
+		</RollingFile>
+		
+	</Appenders>
+	
+	<!--  Logger 설정 -->
+	<Loggers>
+		<Root level="ERROR">
+			<AppenderRef ref="console"/>
+			<AppenderRef ref="eCAMS"/>
+		</Root>
+	</Loggers>
+</Configuration>

@@ -1,0 +1,210 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_backupmv.pc                            │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ eCAMS 프로그램의 버전정보 체크               │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2013. 01. 14                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+typedef struct
+{
+	short len;
+	char  arr[100];
+} vr;
+
+/*---------------------------------------------------------------*/
+/*       Oracle Sql Bind 변수 DEFINE                             */
+/*---------------------------------------------------------------*/
+EXEC SQL BEGIN DECLARE SECTION;
+    EXEC SQL TYPE vr IS VARRAW(100);
+    vr my_vr;
+EXEC SQL END DECLARE SECTION;
+
+
+#define DEBUG 1
+
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+int 	Process_verchk		();
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath           [dfDir];
+char	szConvBackPath         [dfDir];
+char	szVerFileB             [dfDir];
+char	szVerFileA             [dfDir];
+char	gszBackPath1           [dfDir];
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			신청자원의 처리   M A I N                            */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+int 	retval                          ;
+char	SysCmd       [dfFullPath];
+char	SysCmd1      [dfFullPath];
+char	szSYSCD         [dfSysCD];
+char	szDSNCD         [dfDsnCD];
+char	szITEMID       [dfItemID];
+char	szRsrcName   [dfRsrcName];
+int 	nTot, nCnt;
+char	szAcptNo       [dfAcptNo];
+
+
+
+    if ( argc != 2 ) {
+        printf ("Usage : %s <시스템> \n", argv[0]);
+        exit (0);
+	}
+
+
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	sprintf(szSYSCD     , "%s", argv[1]);
+	sprintf(gszBackPath1, "/prodsrce_new");
+	
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+
+	/*-----------------------------------------------------------*/
+	/*	ResultFile Dir 체크                                      */
+	/*-----------------------------------------------------------*/
+	SetTempDir("93", gszBackPath);
+	if (cmp_right_char(gszBackPath, 1, "/") == 0) {
+		sprintf(gszBackPath, "%s", left_char(gszBackPath, strlen(gszBackPath) - 1));
+	}
+
+	EXEC SQL 
+		SELECT  COUNT(*)
+		  INTO  :nTot
+		  FROM  CMR0020 A
+		 WHERE  CR_SYSCD = :szSYSCD
+		   AND  CR_LSTVER > 0;
+	
+
+	EXEC SQL DECLARE DSNCD_List1 CURSOR FOR
+		SELECT  DISTINCT
+		        CR_SYSCD
+		      , CR_DSNCD
+		      , CR_ITEMID
+		      , CR_RSRCNAME
+		  FROM  CMR0020
+		 WHERE  CR_SYSCD = :szSYSCD
+		   AND  CR_LSTVER > 0
+		 ORDER  BY  CR_DSNCD, CR_ITEMID;
+
+
+	nCnt = 0;
+	EXEC SQL open  DSNCD_List1;
+    while (1) {
+		EXEC SQL FETCH DSNCD_List1
+			INTO  :szSYSCD
+			    , :szDSNCD
+			    , :szITEMID 
+			    , :szRsrcName;
+
+		if (sqlca.sqlcode == 1403)	break;
+
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+			break;
+		}
+
+		NotUseDataTruncate(szSYSCD   , 0x20);
+		NotUseDataTruncate(szDSNCD   , 0x20);
+		NotUseDataTruncate(szITEMID  , 0x20);
+		sprintf(szRsrcName, "%s", trunc_char(szRsrcName));
+
+		Conv_BackDir(szSYSCD, szDSNCD, szITEMID, szConvBackPath);
+		sprintf(szVerFileB, "%s/%s/%s/%s", gszBackPath, szSYSCD, szDSNCD, szITEMID);
+
+		if (access(szVerFileB, F_OK) != 0) {
+		/*
+			fprintf(stderr, "[%d/%d] OLD Directory Not Found ; [%s] [%s]\n", ++nCnt, nTot, szVerFileB, szConvBackPath);
+			fflush (stderr);
+		*/
+			continue;
+		}
+
+		sprintf(szVerFileA, "%s/%s/%s", gszBackPath1, szSYSCD, szConvBackPath);
+		if (access(szVerFileA, F_OK) != 0) {
+			sprintf(SysCmd, "mkdir -p %s", szVerFileA);
+			retval = system(SysCmd) / 256;
+		}
+
+		if (memcmp(szRsrcName, ".", 1) == 0) {
+			sprintf(SysCmd, "cp -p '%s/%s'* %s 2>/dev/null", szVerFileB, szRsrcName, szVerFileA);
+			retval = system(SysCmd) / 256;
+			if (retval != 0) {
+				sprintf(SysCmd, "cp -p %s/%s* %s", szVerFileB, szRsrcName, szVerFileA);
+			}
+		}
+		else {
+			sprintf(SysCmd, "cp -p '%s/%s'* %s", szVerFileB, szRsrcName, szVerFileA);
+		}
+		
+		retval = system(SysCmd) / 256;
+		if (retval == 0) {
+			fprintf(stdout, "[%d/%d] COPY SUCCESS : %s\n", ++nCnt, nTot, SysCmd);
+			fflush (stdout);
+		}
+		else {
+			sprintf(SysCmd1, "filelistck %s", szVerFileB);
+			retval = system(SysCmd1) / 256;
+			if (retval == 0)	continue; 
+
+			fprintf(stderr, "[%d/%d] COPY ERROR   : %s\n", ++nCnt, nTot, SysCmd);
+			fflush (stderr);
+		}
+	}
+	EXEC SQL close DSNCD_List1;
+}
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

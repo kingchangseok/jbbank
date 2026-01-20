@@ -1,0 +1,357 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_trcontrol.pc                           │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 거래 제어 처리 MAIN                          │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2013. 02. 19                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+#define 	DEBUG 		1
+#define		dfLIMIT     15
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+int 	Process_TRControl		();
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath             [dfDir];
+
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			    거래 제어 처리   M A I N                         */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+char	szAcptDate                [14+1];
+char	szRstCond                 [20+1];
+int 	retval                          ;
+int		nPid                            ;
+
+
+    if ( argc != 2 ) {
+        printf ("Usage : %s <신청일시> \n", argv[0]);
+        exit (0);
+	}
+
+	memset(szAcptDate , 0x00, sizeof(szAcptDate ));
+
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	/*-----------------------------------------------------------*/
+	/* 	신청번호 , 시리얼번호 초기화	          			     */
+	/*-----------------------------------------------------------*/
+	sprintf(szAcptDate, "%s", argv[1]);
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+
+	/*-----------------------------------------------------------*/
+	/*	ResultFile Dir 체크                                      */
+	/*-----------------------------------------------------------*/
+	SetTempDir("11", gszRsultPath);
+	Local_Dir_Make(gszRsultPath );
+
+	/*-----------------------------------------------------------*/
+	/*	신청 구분별 처리					                     */
+	/*-----------------------------------------------------------*/
+	memset(szRstCond, 0x00, sizeof(szRstCond));
+	retval = Process_TRControl(szAcptDate, "01", szRstCond);
+
+	if (retval == 0) {
+		retval = Process_TRControl(szAcptDate, "02", szRstCond);
+		retval = Process_TRControl(szAcptDate, "03", szRstCond);
+	}
+
+	/*-----------------------------------------------------------*/
+	/*	처리결과코드 SET 					                     */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		UPDATE  CMR7000 A
+		   SET  CR_PRCDATE = SYSDATE
+		      , CR_RESULT  = (SELECT  MAX(NVL(CR_PRCRST, 'NULL'))
+		                        FROM  CMR7010
+		                       WHERE  CR_ACPTDATE   = A.CR_ACPTDATE
+		                         AND  CR_NODE       = A.CR_NODE
+		                         AND  CR_INSTANCECD = A.CR_INSTANCECD
+		                         AND  CR_INSTANCEID = A.CR_INSTANCEID
+		                     )
+		 WHERE  CR_ACPTDATE   = :szAcptDate;
+
+	EXEC SQL
+		UPDATE  CMR7000 A
+		   SET  CR_RESULT  = 'NONE'
+		 WHERE  CR_ACPTDATE   = :szAcptDate
+		   AND  CR_PRCDATE IS NOT NULL
+		   AND  CR_RESULT  IS NULL;
+
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit(retval);
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_TRControl                                */
+/*	Action    : 거래 제어 처리 SUB PROGRAM Call                  */
+/*  Parameter : pAcptDate  : 신청일시                            */
+/*              pRstCond   : 처리결과                            */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Process_TRControl	( char *pAcptDate
+							, char *pREQCD
+							, char *pRstCond
+							)
+{
+char	szNODE                     [2+1];
+char	szRUNCD                    [2+1];
+char	szINSTANCECD              [10+1];
+char	szINSTANCEID              [10+1];
+char	szTRCONTROL               [10+1];
+char	szREFRESH                 [10+1];
+char	szINSTANCE                [10+1];
+char	szSvrIP                [dfSvrIP];
+char	szSysCmd            [dfFullPath];
+char	szREQMsg                    [20];
+int 	nErrCnt                         ;
+int 	retval                          ;
+int 	szSeqNo                         ;
+
+
+	memset(pRstCond, 0x00, sizeof(pRstCond));
+	sprintf(pRstCond, "%s", "0000");
+
+	if (strcmp(pREQCD, "01") == 0) {
+		sprintf(szREQMsg, "%s", "TRCONTROL");
+	}
+	else
+	if (strcmp(pREQCD, "02") == 0) {
+		sprintf(szREQMsg, "%s", "REFRESH" );
+	}
+	else
+	if (strcmp(pREQCD, "03") == 0) {
+		sprintf(szREQMsg, "%s", "INSTANCE");
+	}
+	else {
+		return (1);
+	}
+
+	/*-----------------------------------------------------------*/
+	/* 	거래제어 처리                            			     */
+	/*-----------------------------------------------------------*/
+	EXEC SQL DECLARE TRControl_Rsrc CURSOR FOR
+		SELECT  A.CR_NODE
+		      , A.CR_INSTANCECD
+		      , A.CR_INSTANCEID
+		      , DECODE(:pREQCD, '01', A.CR_TRCONTROL
+		      	              , '02', A.CR_REFRESH
+		      	              , '03', A.CR_INSTANCE
+		      	      )
+		      , B.CD_RUNCD
+		      , B.CD_SVRIP
+		  FROM  CMR7000 A
+		      , CMD7000 B
+		 WHERE  A.CR_ACPTDATE = :pAcptDate
+		   AND  A.CR_PRCDATE   IS NULL
+		   AND  (    (:pREQCD = '01' AND  A.CR_TRCONTROL IS NOT NULL)
+		   	     OR  (:pREQCD = '02' AND  A.CR_REFRESH   IS NOT NULL)
+		   	     OR  (:pREQCD = '03' AND  A.CR_INSTANCE  IS NOT NULL)
+		   	    )
+		   AND  A.CR_NODE = B.CD_NODE
+		   AND  A.CR_INSTANCECD = B.CD_INSTANCECD
+		   AND  A.CR_INSTANCEID = B.CD_INSTANCEID
+		   AND  B.CD_REQCD = :pREQCD
+		   AND  B.CD_CLOSEDT IS NULL;
+
+
+	nErrCnt = 0;
+	EXEC SQL open  TRControl_Rsrc;
+    while (1) {
+		EXEC SQL fetch TRControl_Rsrc
+			INTO  :szNODE
+			    , :szINSTANCECD
+			    , :szINSTANCEID
+			    , :szTRCONTROL
+			    , :szRUNCD
+			    , :szSvrIP     ;
+
+		if (sqlca.sqlcode == 1403)	break;
+
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+			break;
+		}
+
+		NotUseDataTruncate(szNODE      , 0x20);
+		NotUseDataTruncate(szINSTANCECD, 0x20);
+		NotUseDataTruncate(szINSTANCEID, 0x20);
+		NotUseDataTruncate(szTRCONTROL , 0x20);
+		NotUseDataTruncate(szRUNCD     , 0x20);
+		NotUseDataTruncate(szSvrIP     , 0x20);
+
+
+		/*-------------------------------------------------------*/
+		/* 	동시 처리건수 체크                   			     */
+		/*-------------------------------------------------------*/
+		while (1) {
+			sprintf(szSysCmd, "procck ecams_trcontrol_sub");
+			retval = system(szSysCmd) / 256;
+			if (retval < dfLIMIT) {
+				break;
+			}
+			sleep (1);
+		}
+
+		szSeqNo = 0;
+
+		/*-------------------------------------------------------*/
+		/* 	일련번호 채번                       			     */
+		/*-------------------------------------------------------*/
+		while (1) {
+			EXEC SQL
+				SELECT  CR_SEQNO
+				  INTO  :szSeqNo
+				  FROM  CMR7010
+				 WHERE  CR_ACPTDATE   = :pAcptDate
+				   AND  CR_NODE       = :szNODE
+				   AND  CR_REQCD      = :pREQCD
+				   AND  CR_RUNCD      = :szRUNCD
+				   AND  CR_INSTANCECD = :szINSTANCECD
+				   AND  CR_INSTANCEID = :szINSTANCEID
+				   AND  CR_SVRIP      = :szSvrIP     ;
+
+			if (sqlca.sqlcode != 0)
+				szSeqNo = 0;
+
+			if (szSeqNo == 0) {
+				EXEC SQL
+					SELECT  NVL(MAX(CR_SEQNO), 0)
+					  INTO  :szSeqNo
+					  FROM  CMR7010
+					 WHERE  CR_ACPTDATE   = :pAcptDate;
+
+				szSeqNo++;
+
+				EXEC SQL
+					INSERT  INTO  CMR7010
+						( CR_ACPTDATE
+						, CR_SEQNO
+						, CR_NODE
+						, CR_REQCD
+						, CR_RUNCD
+						, CR_INSTANCECD
+						, CR_INSTANCEID
+						, CR_SVRIP
+						)
+					VALUES
+						( :pAcptDate
+						, :szSeqNo
+						, :szNODE
+						, :pREQCD
+						, :szRUNCD
+						, :szINSTANCECD
+						, :szINSTANCEID
+						, :szSvrIP
+						);
+
+				if (sqlca.sqlcode == 0) {
+					EXEC SQL COMMIT;
+					break;
+				}
+			}
+			else {
+				break;
+			}
+
+			sleep (1);
+		}
+
+		sprintf(szSysCmd, "ecams_trcontrol_sub %s %d %s %s %s %s %s %s %s & "
+						, pAcptDate, szSeqNo, szNODE, szRUNCD, szINSTANCECD, szINSTANCEID, szSvrIP, szREQMsg, szTRCONTROL);
+
+		retval = system (szSysCmd) / 256;
+		if (retval != 0) {
+			nErrCnt++;
+		}
+
+	}
+	EXEC SQL close TRControl_Rsrc;
+
+	/*-----------------------------------------------------------*/
+	/* 	처리 완료 여부 체크                      			     */
+	/*-----------------------------------------------------------*/
+	while (1) {
+		sleep (3);
+		sprintf(szSysCmd, "procck ecams_trcontrol_sub");
+		retval = system(szSysCmd) / 256;
+		if (retval == 0) {
+			break;
+		}
+	}
+
+	if (nErrCnt == 0) {
+		EXEC SQL
+			SELECT  NVL(COUNT(*), 0)
+			  INTO  :nErrCnt
+			  FROM  CMR7010
+			 WHERE  CR_ACPTDATE = :pAcptDate
+			   AND  CR_REQCD    = :pREQCD
+		   	   AND  NVL(CR_PRCRST, 'EROR') != '0000';
+
+		if (sqlca.sqlcode != 0)
+			nErrCnt = 0;
+	}
+
+	return (nErrCnt);
+
+}
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

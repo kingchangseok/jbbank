@@ -1,0 +1,702 @@
+/*-----------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_acct_syspmd.pc                         │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ PMD 연동처리                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2012. 11. 22                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+/*---------------------------------------------------------------*/
+/*		HEADER  FILE  INCLUDE                                    */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+
+
+
+
+/*---------------------------------------------------------------*/
+/*	Function  : Process_SYSPMD                                   */
+/*	Action    : PMD 연동(SYSPMD) 단계 처리                       */
+/*	Parameter : pAcptNo   : 신청번호                             */
+/*	            pPrcSys   : 처리단계                             */
+/*              pRstCond  : 처리결과                             */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+void 	Process_SYSPMD	( char *pAcptNo
+						, char *pPrcSys
+						, char *pRstCond
+						)
+{
+char	szSysCD                [dfSysCD];
+char	szDsnCD                [dfDsnCD];
+char	szRsrcName          [dfPhysName];
+char	szRsrcCD              [dfRsrcCD];
+int		szVersion                       ;
+char	szEditor              [dfEditor];
+int		szSysStep                       ;
+int		szSerNo                         ;
+char	szChgCD                    [1+1];
+char	szTstChg                   [1+1];
+char	szQryCD                [dfReqCD];
+char	szSysGB                    [1+1];
+char	szCncl                     [1+1];
+char	szItemID              [dfItemID];
+char	szSvrIP                [dfSvrIP];
+int		szPortNo                        ;
+int		nErrCnt                         ;
+char	szSvrCD                [dfSvrCD];
+char	szSvrName              [dfSvrNM];
+char	szDir                    [dfDir];
+char	szVolPath                [dfDir];
+char	szSysOS                    [2+1];
+int		szSvrSeq                        ;
+char	szInfo                  [dfInfo];
+char	szDirPath                [dfDir];
+char	szReqCD                [dfReqCD];
+char	szchmod                      [6];
+char	szchown                     [21];
+char	szchgrp                     [21];
+char	szJobCD                [dfJobCD];
+char	szReqPath                [dfDir];
+char	szRstFile           [dfFullPath];
+char	szChangDirPath           [dfDir];
+char	szRemoteFileName    [dfFullPath];
+char	szLocalFileName     [dfFullPath];
+char	szBackFileName      [dfFullPath];
+char	szRemote            [dfFullPath];
+char	szLocal             [dfFullPath];
+char	szCommand           [dfFullPath];
+char	idxFileName         [dfFullPath];
+int		idxcnt                          ;
+int		nRet                            ;
+char	szSvrInfo            [dfSvrInfo];
+char	szSysInfo            [dfSysInfo];
+char	szXmlFile           [dfPhysName];
+char	szChangDirPathTmp        [dfDir];
+char	szXmlName           [dfRsrcName];
+char	szSysCmd            [dfFullPath];
+char	ConnStr2                   [256];
+int  	nFortifyCnt                     ;
+char	szJobNM                   [50+1];
+
+CMD_INFO	CmdInfo                     ;
+
+
+	memset(szReqPath,0x00,sizeof(szReqPath));
+
+	/*-----------------------------------------------------------*/
+	/*	파일 생성시 파일이 저장될 경로 설정및 생성               */
+	/*-----------------------------------------------------------*/
+	SetTempDir("77",szReqPath);
+	strcat(szReqPath,pAcptNo);
+	if (access(szReqPath,F_OK) != 0)
+		Local_Dir_Make(szReqPath);
+
+
+
+	memset(szchmod, 0x00, sizeof(szchmod));
+	memset(szchown, 0x00, sizeof(szchown));
+	memset(szchgrp, 0x00, sizeof(szchgrp));
+	
+	
+	/*-----------------------------------------------------------*/
+	/*	소켓 명령 변수 초기화                                    */
+	/*-----------------------------------------------------------*/
+	InitCmdInfo(&CmdInfo);
+	strcpy(CmdInfo.szAcptNo,pAcptNo);
+	sprintf(CmdInfo.szLogFile,"%sTransList.%s",gszLogPath,gszLogFile);
+	
+
+	/*-----------------------------------------------------------*/
+	/*	Tar Index 파일 생성 초기화                               */
+	/*-----------------------------------------------------------*/
+	tar_index_init(pAcptNo, szReqPath);
+	idxcnt = 0 ;
+	szSysStep = 0;
+
+	EXEC SQL declare SYSFT_RSRC cursor for
+		SELECT 	DISTINCT
+		        A.CR_SYSCD
+		      , A.CR_RSRCNAME
+		      , A.CR_DSNCD
+		      , A.CR_RSRCCD
+		      , A.CR_JOBCD
+		      , A.CR_VERSION
+		      , A.CR_EDITOR
+		      , A.CR_SERNO
+		      , NVL(A.CR_CHGCD,'0')
+		      , NVL(A.CR_TSTCHG,'0')
+		      , A.CR_ITEMID
+		      , B.CR_QRYCD
+		      , B.CR_SYSGB
+		      , NVL(B.CR_CNCL,'0')
+		      , C.CM_SVRIP
+		      , C.CM_PORTNO
+		      , C.CM_SVRCD
+		      , C.CM_SVRNAME
+		      , C.CM_DIR
+		      , C.CM_VOLPATH
+		      , C.CM_SYSOS
+		      , C.CM_SEQNO
+		      , C.CM_SVRUSE
+		      , D.CM_INFO
+		      , F.CM_DIRPATH
+		      , G.CM_JOBNAME
+		  FROM  CMR1010 A
+		      , CMR1000 B
+		      , CMM0031 C
+		      , CMM0036 D
+		      , CMM0038 E
+		      , CMM0070 F
+		      , CMM0102 G
+		 WHERE  A.CR_ACPTNO = :pAcptNo
+#if 0
+		   AND  A.CR_PRCDATE IS NULL
+		   AND  A.CR_STATUS != '3'
+#endif
+		   AND  C.CM_SVRCD  =  '92'
+		   AND  C.CM_SVRSTOP = 'N'
+		   AND  C.CM_CLOSEDT IS NULL
+		   AND  A.CR_ACPTNO = B.CR_ACPTNO
+		   AND  A.CR_SYSCD	= C.CM_SYSCD
+		   AND  A.CR_SYSCD  = D.CM_SYSCD
+		   AND  A.CR_RSRCCD = D.CM_RSRCCD
+		   AND  A.CR_SYSCD  = E.CM_SYSCD
+		   AND  A.CR_RSRCCD	= E.CM_RSRCCD
+		   AND  C.CM_SVRCD	= E.CM_SVRCD
+		   AND  SUBSTR(D.CM_INFO,58,1) = '1'
+		   AND  C.CM_SEQNO	= E.CM_SEQNO
+		   AND  A.CR_SYSCD	= F.CM_SYSCD
+		   AND  A.CR_DSNCD	= F.CM_DSNCD
+		   AND  A.CR_JOBCD  = G.CM_JOBCD;
+
+	EXEC SQL open  SYSFT_RSRC;
+	while(1) {
+		EXEC SQL fetch SYSFT_RSRC
+			INTO  :szSysCD
+				, :szRsrcName
+				, :szDsnCD
+				, :szRsrcCD
+				, :szJobCD
+				, :szVersion
+				, :szEditor
+				, :szSerNo
+				, :szChgCD
+				, :szTstChg
+				, :szItemID
+				, :szQryCD
+				, :szSysGB
+				, :szCncl
+				, :szSvrIP
+				, :szPortNo
+				, :szSvrCD
+				, :szSvrName
+				, :szDir
+				, :szVolPath
+				, :szSysOS
+				, :szSvrSeq
+				, :szSvrInfo
+				, :szInfo
+				, :szDirPath
+				, :szJobNM;
+
+		if (sqlca.sqlcode == 1403)	break;
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+			sprintf(gszLogMsg,"Process_SYSFT DB FETCH ERROR : [%s] [%d] [%s]", pAcptNo, sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			break;
+		}
+
+		NotUseDataTruncate (szSysCD  , 0x20);
+		NotUseDataTruncate (szDsnCD  , 0x20);
+		NotUseDataTruncate (szRsrcCD , 0x20);
+		NotUseDataTruncate (szJobCD  , 0x20);
+		NotUseDataTruncate (szEditor , 0x20);
+		NotUseDataTruncate (szQryCD  , 0x20);
+		NotUseDataTruncate (szSysGB  , 0x20);
+		NotUseDataTruncate (szSvrIP  , 0x20);
+		NotUseDataTruncate (szSvrCD  , 0x20);
+		NotUseDataTruncate (szSvrName, 0x20);
+		NotUseDataTruncate (szDir    , 0x20);
+		NotUseDataTruncate (szVolPath, 0x20);
+		NotUseDataTruncate (szSysOS  , 0x20);
+		NotUseDataTruncate (szInfo   , 0x20);
+		NotUseDataTruncate (szChgCD  , 0x20);
+		NotUseDataTruncate (szTstChg , 0x20);
+		NotUseDataTruncate (szCncl   , 0x20);
+		NotUseDataTruncate (szItemID , 0x20);
+		NotUseDataTruncate (szSvrInfo, 0x20);
+
+		sprintf(szRsrcName, "%s", (char *)trunc_char(szRsrcName));
+		sprintf(szDirPath , "%s", (char *)trunc_char(szDirPath ));
+		sprintf(szJobNM   , "%s", (char *)trunc_char(szJobNM   ));
+
+		ChangeVolPath(szSysCD , szSvrCD, szRsrcCD, szSvrSeq, szDirPath, szChangDirPathTmp);
+
+		if (cmp_right_char(szChangDirPathTmp, 1, "/") == 0) {
+			sprintf(szChangDirPathTmp, "%s", (char *)left_char(szChangDirPathTmp, strlen(szChangDirPathTmp) - 1));
+		}
+
+		/*-------------------------------------------------------*/
+		/*	서버 OS별 디렉토리 변환                              */
+		/*-------------------------------------------------------*/
+		Convert_WinDirPath (szSysOS, szChangDirPathTmp, szChangDirPath);
+
+		/*-------------------------------------------------------*/
+		/*	결과파일명 작성                                      */
+		/*-------------------------------------------------------*/
+		sprintf(szRstFile,"%s/%s.%d.%s.%d.result", gszTempPath, pAcptNo, szSerNo,szSvrIP,szSvrSeq);
+
+		/*-------------------------------------------------------*/
+		/*	개발서버에 파일저장 경로+파일명                      */
+		/*-------------------------------------------------------*/
+		memset(szRemoteFileName, 0x00, sizeof(szRemoteFileName));
+		memset(szBackFileName  , 0x00, sizeof(szBackFileName  ));
+		memset(szLocalFileName , 0x00, sizeof(szLocalFileName ));
+
+		strcpy(szRemoteFileName,szRsrcName);
+		sprintf(szLocalFileName,"%s.%s.%d",szRsrcName, pAcptNo, szSerNo);
+		sprintf(szLocal,"%s/%s",szReqPath,szLocalFileName);
+
+		/*LOG*/sprintf(gszLogMsg,"파일생성 및 Tar 파일 Idx [%s] [%s] [%s] [%d] [%s] [%s] [%s] [%s] [%s] [%s] [%s]  추가\n",pAcptNo,szReqPath,szSvrIP,szSvrSeq,szLocalFileName,szRemoteFileName,szChangDirPath,szchmod,szchown,szchgrp,szBackFileName);
+		eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+
+		/*-------------------------------------------------------*/
+		/*	Fortify 연동처리 대상에 대한 인덱스 작성             */
+		/*-------------------------------------------------------*/
+		if (tar_index_insert_Z(pAcptNo,szReqPath,szSvrIP,szSvrSeq,szLocalFileName,szRemoteFileName,szChangDirPath,szchmod,szchown,szchgrp,"",szBackFileName) != 0){
+			/*LOG*/sprintf(gszLogMsg,"[%s][%d][%s] 파일생성 및 Tar 파일 Idx 추가 실패\n",pAcptNo,szSerNo,pPrcSys);
+			eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+			strcpy(pRstCond,"TARE");
+
+			Result_Make(szRstFile,"파일생성 및 Tar 파일 Idx 추가 실패",szSvrIP,pPrcSys,pRstCond);
+			CMR1011_Make (szSysCD, szSvrIP, pAcptNo, szSerNo, szRstFile, szSysStep, pRstCond, szSvrName, pPrcSys,szSvrCD,szSvrSeq);
+			continue;
+		}
+
+		idxcnt++;
+		/*LOG*/sprintf(gszLogMsg,"[%s][%d][%s] 파일생성 및 Tar 파일 Idx 추가 \n",pAcptNo,szSerNo,pPrcSys);
+		eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+
+		Result_Make(szRstFile,"파일생성 및 Tar 파일 Idx 추가",szSvrIP,pPrcSys,pRstCond);
+		CMR1011_Make (szSysCD, szSvrIP, pAcptNo, szSerNo, szRstFile, szSysStep, pRstCond, szSvrName, pPrcSys,szSvrCD,szSvrSeq);
+
+	}
+	EXEC SQL close SYSFT_RSRC;
+	
+
+	/*-----------------------------------------------------------*/
+	/*	오류건수 조회                                            */
+	/*-----------------------------------------------------------*/
+	nErrCnt = 0;
+
+	EXEC SQL
+		SELECT  COUNT(A.CR_SEQNO)
+		  INTO  :nErrCnt
+		  FROM  CMR1011 a
+		      , CMR1010 b
+		 WHERE  A.CR_ACPTNO  = :pAcptNo
+		   AND  B.CR_PRCDATE IS NULL
+		   AND  A.CR_ACPTNO  = B.CR_ACPTNO
+		   AND  A.CR_SERNO   = B.CR_SERNO
+		   AND  B.CR_STATUS != '3'
+		   AND  A.CR_PRCSYS  = :pPrcSys
+		   AND  NVL(A.CR_PUTCODE, 'N/A') != '0000';
+
+	if (nErrCnt != 0) {
+		strcpy(pRstCond,"EROR");
+		return;
+	}
+
+	/*-----------------------------------------------------------*/
+	/*	대상 서버로 전송                                         */
+	/*-----------------------------------------------------------*/
+	if (idxcnt> 0){
+		EXEC SQL declare SYSFT_RSRC1 cursor for
+			SELECT 	DISTINCT
+			        B.CM_SYSCD
+			      , B.CM_SVRCD
+			      , B.CM_SVRNAME
+			      , B.CM_SVRIP
+			      , B.CM_PORTNO
+			      , B.CM_DIR
+			      , B.CM_SEQNO
+			  FROM  CMR1010 A
+			      , CMM0031 B
+			      , CMM0036 C
+			      , CMM0038 D
+			 WHERE  A.CR_ACPTNO = :pAcptNo
+#if 0
+			   AND  A.CR_PRCDATE IS NULL
+			   AND  A.CR_STATUS != '3'
+#endif
+			   AND  B.CM_SVRCD   =  '92'
+			   AND  B.CM_SVRSTOP = 'N'
+			   AND  B.CM_CLOSEDT IS NULL
+			   AND  A.CR_SYSCD	= B.CM_SYSCD
+			   AND  A.CR_SYSCD  = C.CM_SYSCD
+			   AND  A.CR_RSRCCD = C.CM_RSRCCD
+			   AND  A.CR_SYSCD  = D.CM_SYSCD
+			   AND  SUBSTR(C.CM_INFO,58,1) = '1'
+			   AND  A.CR_RSRCCD	= D.CM_RSRCCD
+			   AND  B.CM_SVRCD	= D.CM_SVRCD
+			   AND  B.CM_SEQNO	= D.CM_SEQNO;
+
+		EXEC SQL open  SYSFT_RSRC1;
+		while(1){
+			EXEC SQL fetch SYSFT_RSRC1
+				INTO  :szSysCD
+					, :szSvrCD
+					, :szSvrName
+					, :szSvrIP
+					, :szPortNo
+					, :szDir
+					, :szSvrSeq;
+
+			if (sqlca.sqlcode == 1403)	break;
+
+			if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+				sprintf(gszLogMsg,"Process_SYSFT DB FETCH ERROR : [%s] [%d] [%s]", pAcptNo, sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc);
+				eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+				break;
+			}
+
+			NotUseDataTruncate (szSysCD  , 0x20);
+			NotUseDataTruncate (szSvrCD  , 0x20);
+			NotUseDataTruncate (szSvrName, 0x20);
+			NotUseDataTruncate (szSvrIP  , 0x20);
+			NotUseDataTruncate (szDir    , 0x20);
+
+			eCAMS_ACComp_Fork ("SYSTPT", pAcptNo, 1, szSvrIP, szSysCD,
+								   "", "", "1","", pPrcSys, "",
+										   "", szPortNo, "", szSvrCD , szSvrSeq,0);
+		}
+		EXEC SQL close SYSFT_RSRC1;
+	}
+
+
+	/*-----------------------------------------------------------*/
+	/*	처리완료 여부 체크 및 대기 처리                          */
+	/*-----------------------------------------------------------*/
+	wait_Accomp_Fork("SYSTPT",pAcptNo);
+
+	nErrCnt = 0;
+	/*-----------------------------------------------------------*/
+	/*	오류건수 조회                                            */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  COUNT(A.CR_SEQNO)
+		  INTO  :nErrCnt
+		  FROM  CMR1011 A
+		      , CMR1010 B
+		 WHERE  A.CR_ACPTNO  = :pAcptNo
+		   AND  B.CR_PRCDATE IS NULL
+		   AND  A.CR_ACPTNO  = B.CR_ACPTNO
+		   AND  A.CR_SERNO   = B.CR_SERNO
+		   AND  B.CR_STATUS != '3'
+		   AND  A.CR_PRCSYS  = :pPrcSys
+		   AND  NVL(A.CR_PUTCODE, 'N/A') != '0000';
+
+	if (nErrCnt != 0) {
+		strcpy(pRstCond,"EROR");
+		return;
+	}
+	
+    /*-----------------------------------------------------------*/
+    /*  Fortify  DB Server  Connect                              */
+    /*-----------------------------------------------------------*/
+	EXEC SQL DECLARE FORTIFY DATABASE;
+    memset(ConnStr2 , 0x00, sizeof(ConnStr2));
+	sprintf(ConnStr2, "%s/%s@%s", "frty", "wjarja$11", "FRTY");
+
+	EXEC SQL AT FORTIFY CONNECT :ConnStr2;
+	if (sqlca.sqlcode != 0) {
+		sprintf(gszLogMsg,"FORTIFY DATABASE CONNECT ERROR : [%s] [%d] [%s]", pAcptNo, sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+	    return;
+	}
+
+
+	/*-----------------------------------------------------------*/
+	/*	 Fortify 연동처리 스크립트실행 대상 추출                 */
+	/*-----------------------------------------------------------*/
+	EXEC SQL declare SYSFT_RSRC2 cursor for
+		SELECT  DISTINCT
+		        A.CR_SYSCD
+		      , A.CR_RSRCNAME
+		      , A.CR_DSNCD
+		      , A.CR_RSRCCD
+		      , A.CR_VERSION
+		      , A.CR_EDITOR
+		      , A.CR_SERNO
+		      , NVL(A.CR_CHGCD , '0')
+		      , NVL(A.CR_TSTCHG, '0')
+		      , A.CR_ITEMID
+		      , A.CR_QRYCD
+		      , A.CR_JOBCD
+		      , B.CR_QRYCD
+		      , B.CR_SYSGB
+		      , NVL(B.CR_CNCL  , '0')
+		      , C.CM_SVRIP
+		      , C.CM_PORTNO
+		      , C.CM_SVRCD
+		      , C.CM_SVRNAME
+		      , C.CM_DIR
+		      , C.CM_VOLPATH
+		      , C.CM_SYSOS
+		      , C.CM_SEQNO
+		      , D.CM_INFO
+		      , F.CM_DIRPATH
+		      , G.CM_JOBNAME
+		  FROM  CMR1010 A
+		      , CMR1000 B
+		      , CMM0031 C
+		      , CMM0036 D
+		      , CMM0038 E
+		      , CMM0070 F
+		      , CMM0102 G
+		 WHERE  A.CR_ACPTNO = :pAcptNo
+#if 0
+		   AND  A.CR_PRCDATE IS NULL
+		   AND  A.CR_STATUS != '3'
+#endif
+		   AND  C.CM_SVRCD   = '92'
+		   AND  C.CM_SVRSTOP = 'N'
+		   AND  C.CM_CLOSEDT IS NULL
+		   AND  A.CR_ACPTNO = B.CR_ACPTNO
+		   AND  A.CR_SYSCD	= C.CM_SYSCD
+		   AND  A.CR_SYSCD  = D.CM_SYSCD
+		   AND  A.CR_RSRCCD = D.CM_RSRCCD
+		   AND  A.CR_SYSCD  = E.CM_SYSCD
+		   AND  A.CR_RSRCCD	= E.CM_RSRCCD
+		   AND  C.CM_SVRCD	= E.CM_SVRCD
+		   AND  C.CM_SEQNO	= E.CM_SEQNO
+		   AND  A.CR_SYSCD	= F.CM_SYSCD
+		   AND  A.CR_DSNCD	= F.CM_DSNCD
+		   AND  SUBSTR(D.CM_INFO,58,1) = '1'
+		   AND  A.CR_JOBCD  = G.CM_JOBCD;
+
+	EXEC SQL open  SYSFT_RSRC2;
+	while(1){
+		EXEC SQL fetch SYSFT_RSRC2
+			into  :szSysCD
+			    , :szRsrcName
+			    , :szDsnCD
+			    , :szRsrcCD
+			    , :szVersion
+			    , :szEditor
+			    , :szSerNo
+			    , :szChgCD
+			    , :szTstChg
+			    , :szItemID
+			    , :szReqCD
+			    , :szJobCD
+			    , :szQryCD
+			    , :szSysGB
+			    , :szCncl
+			    , :szSvrIP
+			    , :szPortNo
+			    , :szSvrCD
+			    , :szSvrName
+			    , :szDir
+			    , :szVolPath
+			    , :szSysOS
+			    , :szSvrSeq
+			    , :szInfo
+			    , :szDirPath
+			    , :szJobNM;
+
+		if (sqlca.sqlcode == 1403)	break;
+
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+			sprintf(gszLogMsg,"Process_SYSFT DB FETCH ERROR : [%s] [%d] [%s]", pAcptNo, sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			break;
+		}
+
+		NotUseDataTruncate (szSysCD  , 0x20);
+		NotUseDataTruncate (szDsnCD  , 0x20);
+		NotUseDataTruncate (szRsrcCD , 0x20);
+		NotUseDataTruncate (szEditor , 0x20);
+		NotUseDataTruncate (szQryCD  , 0x20);
+		NotUseDataTruncate (szJobCD  , 0x20);
+		NotUseDataTruncate (szSysGB  , 0x20);
+		NotUseDataTruncate (szSvrIP  , 0x20);
+		NotUseDataTruncate (szSvrCD  , 0x20);
+		NotUseDataTruncate (szSvrName, 0x20);
+		NotUseDataTruncate (szDir    , 0x20);
+		NotUseDataTruncate (szVolPath, 0x20);
+		NotUseDataTruncate (szSysOS  , 0x20);
+		NotUseDataTruncate (szInfo   , 0x20);
+		NotUseDataTruncate (szChgCD  , 0x20);
+		NotUseDataTruncate (szTstChg , 0x20);
+		NotUseDataTruncate (szCncl   , 0x20);
+		NotUseDataTruncate (szItemID , 0x20);
+		NotUseDataTruncate (szReqCD  , 0x20);
+
+		sprintf(szRsrcName, "%s", (char *)trunc_char(szRsrcName));
+		sprintf(szDirPath , "%s", (char *)trunc_char(szDirPath ));
+		sprintf(szJobNM   , "%s", (char *)trunc_char(szJobNM   ));
+
+		ChangeVolPath(szSysCD , szSvrCD, szRsrcCD, szSvrSeq, szDirPath, szChangDirPathTmp);
+
+		if (cmp_right_char(szChangDirPathTmp, 1, "/") == 0) {
+			sprintf(szChangDirPathTmp, "%s", (char *)left_char(szChangDirPathTmp, strlen(szChangDirPathTmp) - 1));
+		}
+
+		/*-------------------------------------------------------*/
+		/*	OS별 디렉토리 변환                                   */
+		/*-------------------------------------------------------*/
+		Convert_WinDirPath (szSysOS, szChangDirPathTmp, szChangDirPath);
+
+		/*-------------------------------------------------------*/
+		/*	결과파일명                                           */
+		/*-------------------------------------------------------*/
+		sprintf(szRstFile,"%s/%s.%d.%s.%d.result", gszTempPath, pAcptNo, szSerNo,szSvrIP,szSvrSeq);
+
+		/*-------------------------------------------------------*/
+		/*	Fortify 테이블 등록                                  */
+		/*-------------------------------------------------------*/		
+		nFortifyCnt = 0;
+		
+		EXEC SQL AT FORTIFY
+			SELECT  NVL(COUNT(*), 0)
+			  INTO  :nFortifyCnt
+			  FROM  FORTIFY_SCA_NAME
+			 WHERE  PRO_ACPTNO = :pAcptNo
+			   AND  PRO_ITEMID = :szItemID;
+			   
+		if (sqlca.sqlcode != 0) {
+			sprintf(gszLogMsg,"FORTIFY SELECT ERROR : [%s] [%d] [%s]", pAcptNo, sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+
+			nFortifyCnt = 0;
+		}
+			
+		if (nFortifyCnt == 0) {
+			EXEC SQL AT FORTIFY
+				INSERT  INTO  FORTIFY_SCA_NAME
+					( PRO_ACPTNO
+					, PRO_ITEMID
+					, PRO_PATH
+					, PRO_FILENAME
+					, PRO_SEND_CLSS
+					, PRO_NAME
+					, REQC
+					)
+				VALUES
+					( :pAcptNo
+					, :szItemID
+					, :szChangDirPath
+					, :szRsrcName
+					, '1'
+					, :szJobNM
+					, 'F'
+					);
+		}
+		else {
+			EXEC SQL AT FORTIFY
+				UPDATE  FORTIFY_SCA_NAME
+				   SET  PRO_SEND_CLSS = '2'				   
+				 WHERE  PRO_ACPTNO = :pAcptNo
+				   AND  PRO_ITEMID = :szItemID;
+		}
+		
+		if (sqlca.sqlcode != 0) {
+			sprintf(gszLogMsg,"FORTIFY 등록 ERROR : [%s] [%d] [%s]", pAcptNo, sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		}
+	
+		strcpy(CmdInfo.szServerIP, szSvrIP);
+		CmdInfo.nPort	= szPortNo;
+	}
+	EXEC SQL close SYSFT_RSRC2;
+
+	EXEC SQL AT FORTIFY COMMIT;
+	
+	sprintf(CmdInfo.szJobGub , "%s", "S");
+	sprintf(CmdInfo.szCommand, "F:\\fortify\\shell\\fortify_start.cmd %s", pAcptNo);
+	LookCMD_INFO (&CmdInfo);
+	Server_Cmd_JOB(&CmdInfo);
+	LookCMD_INFO (&CmdInfo);
+
+
+	/*-----------------------------------------------------------*/
+	/*	완료여부 체크                                            */
+	/*-----------------------------------------------------------*/
+	while (1) {
+		EXEC SQL AT FORTIFY
+			SELECT  NVL(COUNT(*), 0)
+			  INTO  :nFortifyCnt
+			  FROM  FORTIFY_SCA_NAME
+			 WHERE  PRO_ACPTNO = :pAcptNo
+			   AND  SCA_END_CLSS IS NULL;
+			   
+		if (sqlca.sqlcode != 0)
+			nFortifyCnt = 0;
+			
+		if (nFortifyCnt == 0)	break;
+		
+		sleep (5);
+	}
+	
+
+	nErrCnt = 0;
+	/*-----------------------------------------------------------*/
+	/*	오류건수 조회                                            */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  COUNT(A.CR_SEQNO)
+		  INTO  :nErrCnt
+		  FROM  CMR1011 A
+		      , CMR1010 B
+		 WHERE  A.CR_ACPTNO   = :pAcptNo
+#if 0
+		   AND  B.CR_PRCDATE IS NULL
+		   AND  B.CR_STATUS  != '3'
+#endif
+		   AND  A.CR_ACPTNO   = B.CR_ACPTNO
+		   AND  A.CR_SERNO    = B.CR_SERNO
+		   AND  A.CR_PRCSYS  = :pPrcSys
+		   AND  NVL(A.CR_PUTCODE, 'N/A') != '0000';
+
+	EXEC SQL COMMIT;
+
+	printf("Error Count = [%d]\n", nErrCnt);
+	
+	if(nErrCnt != 0) {
+		strcpy(pRstCond,"EROR");
+		return;
+	}
+	strcpy(pRstCond,"0000");
+
+
+	EXEC SQL AT FORTIFY COMMIT WORK RELEASE;
+	
+	return;
+
+	
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

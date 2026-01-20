@@ -1,0 +1,709 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_cmm0040.pc                             │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 부서정보/사용자정보 동기화 BATCH 프로그램    │
+ │            │ - 형상관리에 등록된 사용자중 그룹웨어에 등록 │
+ │            │   된 부서가 아니면 현상고나리에서 폐기       │
+ │            │ - 그룹웨어에 등록된 부서 사용자중 형상관리에 │
+ │            │   등록되지 않은경우 형상관리에 신규등록      │
+ │            │ - 그룹웨어에 등록된 부서 사용자중 형상관리   │
+ │            │   에 등록된 경우 형상관리에 변경등록         │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2011. 08. 17                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*		외부함수 include										 */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+/*---------------------------------------------------------------*/
+/*       Oracle Sql Bind 변수 DEFINE                             */
+/*---------------------------------------------------------------*/
+EXEC SQL BEGIN DECLARE SECTION;
+	char	ConnStr                [256];
+	char	ConnStr2               [256];
+EXEC SQL END DECLARE SECTION;
+
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			부서정보/사용자정보 동기화 처리 M A I N              */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+char	col_DEPTCD               [100+1];
+char	col_DEPTNAME             [100+1];
+char	col_DEPT_NAME            [100+1];
+char	col_DEPT_ID                [9+1];
+char	col_PAR_ID                 [9+1];
+int 	col_SEQ                         ;
+char	col_DEPT_CODE             [20+1];
+
+int 	col_SEQNO1                      ;
+char	col_DEPTNAME1            [100+1];
+char	col_UPDEPTCD1            [100+1];
+char	col_DEPT_CODE1            [20+1];
+
+char	szInSaConn               [100+1];
+char	szInSaUsr                [100+1];
+char	szInSaPass               [100+1];
+				
+int 	nUserCnt                        ;
+
+char	col_USERID                [20+1];
+char	col_USERNAME             [100+1];
+char	col_EMPNO                 [20+1];
+					
+char	col_USER_ID                [9+1];
+char	col_NAME                  [60+1];
+int 	col_SLINE_ORDER                 ;
+
+char	col_MANID                  [1+1];
+
+char	col_ECAMS_USERNAME        [20+1];
+char	col_ECAMS_PROJECT         [10+1];
+char	col_ECAMS_POSITION        [10+1];
+char	col_ECAMS_DUTY            [20+1];
+char	col_ECAMS_HANDRUN          [1+1];
+char	col_ECAMS_EMPNO           [20+1];
+char	col_ECAMS_ACTIVE           [1+1];
+
+char	col_POS_ID                [10+1];
+char	col_DUTY                  [10+1];
+char	col_POS_NAME              [60+1];
+char	col_DUTY_NM               [60+1];
+char	col_LOGIN_PASSWD          [33+1];
+char	col_ECAMS_PASSWD          [50+1];
+int 	nCnt                            ;
+FILE    *PWDPtr                         ;
+char    indat                      [256];
+char	PWD_FileNM                 [512];
+char	szSysCmd                  [1024];
+int 	retval                          ;
+
+						
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	memset(ConnStr, 0x00, sizeof(ConnStr));
+	sprintf(ConnStr, "%s/%s@%s", getenv("DBUSER"), getenv("DBPASS"), getenv("DBCONN"));
+
+	EXEC SQL CONNECT :ConnStr;
+	if (sqlca.sqlcode != 0) {
+	    printf("eCAMS ConnectDB Failed exit !!! \n");
+	    exit (1);
+	}
+	
+    /*-----------------------------------------------------------*/
+    /*   Signal Define	                                         */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+
+    /*-----------------------------------------------------------*/
+    /*  EAI TABLE 확인                                           */
+    /*-----------------------------------------------------------*/
+ 	EXEC SQL
+		SELECT  COUNT(*)
+		  INTO  :nUserCnt
+		  FROM  EAI_CMM0100;
+	
+	if (nUserCnt == 0) {
+	    printf("EAI_CMM0100 NO DATA FOUND EXIT !!! \n");		
+	    exit(0);
+	}
+	
+	if (sqlca.sqlcode == 1403){
+	    printf("EAI_CMM0100 NO DATA FOUND EXIT !!! \n");		
+	    exit(0);
+	}		
+	   		
+    /*-----------------------------------------------------------*/
+    /*  조직정보 삭제 처리                                       */
+    /*-----------------------------------------------------------*/
+	EXEC SQL
+		DECLARE ECAMS_DEPT_LIST CURSOR FOR
+			SELECT  CM_DEPTCD
+			      , CM_DEPTNAME
+			  FROM  CMM0100
+			 WHERE  CM_HANDYN != 'Y';
+
+	EXEC SQL open ECAMS_DEPT_LIST;
+    while (1) {
+		EXEC SQL FETCH ECAMS_DEPT_LIST
+			INTO  :col_DEPTCD
+			, :col_DEPTNAME;
+
+		if (sqlca.sqlcode == 1403) break;
+
+		sprintf(col_DEPTCD  , "%s", trunc_char(col_DEPTCD  ));
+		sprintf(col_DEPTNAME, "%s", trunc_char(col_DEPTNAME));
+
+	    EXEC SQL
+			SELECT  COUNT(*)
+			  INTO  :nUserCnt
+			  FROM  EAI_CMM0100
+			 WHERE  CM_DEPTCD = :col_DEPTCD;
+
+	   	if (sqlca.sqlcode == 1403)
+	   		nUserCnt = 0;
+
+	    /*-------------------------------------------------------*/
+	    /*  인사정보에 등록되어 있지 않으면 형상관리에서         */
+	    /*	폐기 처리                                            */
+	    /*-------------------------------------------------------*/
+	   	if (nUserCnt == 0) {
+	   		fprintf(stdout, "부서 폐기대상 : [%s] [%s]\n", col_DEPTCD, col_DEPTNAME);
+
+			EXEC SQL
+				UPDATE  CMM0100
+			           SET  CM_USEYN = 'N'
+			 	 WHERE  CM_DEPTCD = :col_DEPTCD;
+		}
+	}
+	EXEC SQL close ECAMS_DEPT_LIST;
+
+
+    /*-----------------------------------------------------------*/
+    /*   조직정보 등록/변경 처리                                 */
+    /*-----------------------------------------------------------*/
+	EXEC SQL
+		DECLARE INSA_DEPT_LIST CURSOR FOR
+			SELECT  substr(CM_DEPTNAME,1,21) CM_DEPTNAME
+				  , CM_DEPTCD
+			   	  , CM_UPDEPTCD
+			   	  , CM_SEQNO
+			  FROM  EAI_CMM0100;
+
+	EXEC SQL open INSA_DEPT_LIST;
+    while (1) {
+		EXEC SQL FETCH INSA_DEPT_LIST
+			INTO  :col_DEPT_NAME
+				, :col_DEPT_ID  
+				, :col_PAR_ID   
+				, :col_SEQ     ;
+
+		if (sqlca.sqlcode == 1403) break;
+
+		sprintf(col_DEPT_NAME   , "%s", trunc_char(col_DEPT_NAME   ));
+		sprintf(col_DEPT_ID     , "%s", trunc_char(col_DEPT_ID     ));
+		sprintf(col_PAR_ID      , "%s", trunc_char(col_PAR_ID      ));
+
+		
+	    /*-------------------------------------------------------*/
+	    /*   형상관리의 기 등록여부 조회                         */
+	    /*-------------------------------------------------------*/
+	    EXEC SQL
+	    	SELECT  COUNT(*)
+	    	  INTO  :nUserCnt
+	    	  FROM  CMM0100
+	    	 WHERE  CM_DEPTCD = :col_DEPT_ID;
+
+	   	if (sqlca.sqlcode == 1403) {
+	   		nUserCnt = 0;
+	   	}
+	   	
+	    /*-------------------------------------------------------*/
+	    /*   형상관리에서 부서 신규등록                        */
+	    /*-------------------------------------------------------*/
+	   	if (nUserCnt == 0) {
+	   		fprintf(stdout, "부서 신규등록대상 : [%s] [%s] [%s]\n", col_DEPT_ID, col_DEPT_NAME, col_PAR_ID);
+
+	   		EXEC SQL
+	   			INSERT INTO  CMM0100
+	   				( CM_DEPTCD
+					, CM_DEPTNAME
+					, CM_UPDEPTCD
+					, CM_USEYN
+					, CM_HANDYN
+				    , CM_SEQNO
+	   				)
+	   			VALUES
+	   				( :col_DEPT_ID
+					, :col_DEPT_NAME
+					, :col_PAR_ID
+					, 'Y'
+					, 'N'
+					, :col_SEQ
+	   				);
+	   	}
+	   	
+	    /*-------------------------------------------------------*/
+	    /*   형상관리에서 부서 정보 변경                       */
+	    /*-------------------------------------------------------*/
+	   	else {
+			EXEC SQL
+				UPDATE  CMM0100
+				   SET  CM_USEYN  = 'Y'
+				 WHERE  CM_DEPTCD = :col_DEPT_ID;
+	
+			if (sqlca.sqlcode != 0) {
+				fprintf(stdout, " 부서명 사용여부 업데이트 실패 [%s][%d]\n", col_DEPT_ID, sqlca.sqlcode);
+				continue;
+			}else {
+				fprintf(stdout, " 부서명 사용여부 업데이트 완료 [%s] [%s] %d [%s]->[%s]\n", col_DEPT_ID, col_PAR_ID, col_SEQ,  col_DEPTNAME1, col_DEPT_NAME);
+			}
+			EXEC SQL COMMIT;	   		
+	   		
+	   		EXEC SQL
+	   			SELECT  CM_DEPTNAME
+	   			      , NVL(CM_UPDEPTCD, '000000000')
+   			          , CM_SEQNO
+	   			  INTO  :col_DEPTNAME1
+	   			  	  , :col_UPDEPTCD1
+   			          , :col_SEQNO1
+	   			  FROM  CMM0100
+	   			 WHERE  CM_DEPTCD = :col_DEPT_ID;
+
+	   		if (sqlca.sqlcode == 1403) {
+	   			fprintf(stdout, " 부서 정보 변경 Skip [%s][%d]\n", col_DEPT_ID, sqlca.sqlcode);
+	   		}
+	   		else {
+	   			sprintf(col_DEPTNAME1 , "%s", trunc_char(col_DEPTNAME1 ));
+				sprintf(col_UPDEPTCD1 , "%s", trunc_char(col_UPDEPTCD1 ));
+
+	   			if (strcmp(col_DEPTNAME1 , col_DEPT_NAME) != 0 ||
+					strcmp(col_UPDEPTCD1 , col_PAR_ID   ) != 0 ||
+					col_SEQNO1 != col_SEQ                      ) {
+					EXEC SQL
+						UPDATE  CMM0100
+						   SET  CM_DEPTNAME  = :col_DEPT_NAME
+						   	  , CM_UPDEPTCD  = :col_PAR_ID
+						   	  , CM_SEQNO     = :col_SEQ
+						 WHERE  CM_DEPTCD = :col_DEPT_ID;
+
+					if (sqlca.sqlcode != 0) {
+						fprintf(stdout, " 부서명 변경 실패 [%s][%d]\n", col_DEPT_ID, sqlca.sqlcode);
+						continue;
+					}
+					else {
+						fprintf(stdout, " 부서명 변경 완료 [%s] [%s] %d [%s]->[%s]\n", col_DEPT_ID, col_PAR_ID, col_SEQ,  col_DEPTNAME1, col_DEPT_NAME);
+					}
+					EXEC SQL COMMIT;
+				}
+			}
+	   	}
+	}
+	EXEC SQL close INSA_DEPT_LIST;
+
+	EXEC SQL
+		UPDATE  CMM0100
+		   SET  CM_UPDEPTCD = NULL
+		 WHERE  CM_UPDEPTCD IN (SELECT  CM_UPDEPTCD
+		                          FROM  CMM0100
+		                         MINUS
+		                        SELECT  CM_DEPTCD
+		                          FROM  CMM0100
+		                       );
+
+	EXEC SQL COMMIT;
+
+	
+    /*-----------------------------------------------------------*/
+    /*  사용자정보 삭제 처리                                     */
+    /*	- 형상관리에서 사용중인 사용자 목록 작성                 */
+    /*-----------------------------------------------------------*/
+	EXEC SQL
+		DECLARE ECAMS_LIST CURSOR FOR
+			SELECT  CM_USERID
+			      , CM_USERNAME
+			  FROM  CMM0040
+			 WHERE  CM_ACTIVE = '1'
+			   AND  CM_HANDRUN != 'Y';
+
+	EXEC SQL open ECAMS_LIST;
+    while (1) {
+		EXEC SQL FETCH ECAMS_LIST
+			INTO  :col_USERID
+				, :col_USERNAME;
+
+		if (sqlca.sqlcode == 1403) break;
+			
+			
+		sprintf(col_USERID      , "%s", trunc_char(col_USERID      ));
+		sprintf(col_USERNAME    , "%s", trunc_char(col_USERNAME    ));
+		
+
+	    /*-------------------------------------------------------*/
+	    /*   인사정보에 IT부서로 되어 있는지 체크                */
+	    /*-------------------------------------------------------*/
+	    EXEC SQL
+			SELECT  COUNT(*)
+			  INTO  :nUserCnt
+			  FROM  EAI_CMM0040
+			 WHERE  USER_ID = :col_USERID;
+
+
+	   	if (sqlca.sqlcode == 1403)
+	   		nUserCnt = 0;
+
+	    /*-------------------------------------------------------*/
+	    /*  인사정보에 IT부서로 되어 있지 않으면 형상관리에서    */
+	    /*	폐기 처리 (사용중여부 CLEAR)                         */
+	    /*-------------------------------------------------------*/
+	   	if (nUserCnt == 0) {
+	   		fprintf(stdout, "사용자 폐기대상 : [%s] [%s]\n", col_USERID, col_USERNAME);
+
+			EXEC SQL
+				UPDATE  CMM0040
+				   SET  CM_ACTIVE  = '0'
+				      , CM_CLSDATE = SYSDATE
+				 WHERE  CM_USERID  = :col_USERID;
+		}
+	}
+	EXEC SQL close ECAMS_LIST;
+
+	fprintf(stdout, "\n\n");
+	
+
+    /*-----------------------------------------------------------*/
+    /*   사용자정보 등록/변경 처리                               */
+    /*-----------------------------------------------------------*/
+	EXEC SQL
+		DECLARE INSA_LIST CURSOR FOR
+			SELECT  A.USER_ID
+			      , A.DEPT_ID
+			      , A.NAME
+			      , A.POS_ID
+			      , A.POS_NAME
+			  FROM  EAI_CMM0040 A
+			 WHERE  A.DEPT_ID IS NOT NULL
+			   AND  A.POS_ID IS NOT NULL
+			 ORDER  BY  A.USER_ID;
+
+
+	EXEC SQL open INSA_LIST;
+    while (1) {
+		EXEC SQL FETCH INSA_LIST
+			INTO  :col_USER_ID    
+				, :col_DEPT_ID    
+				, :col_NAME       
+				, :col_POS_ID
+				, :col_POS_NAME;
+
+		if (sqlca.sqlcode == 1403) break;
+
+		sprintf(col_USER_ID     , "%s", trunc_char(col_USER_ID     ));
+		sprintf(col_DEPT_ID     , "%s", trunc_char(col_DEPT_ID     ));
+		sprintf(col_NAME        , "%s", trunc_char(col_NAME        ));
+		sprintf(col_POS_ID      , "%s", trunc_char(col_POS_ID      ));
+		sprintf(col_POS_NAME    , "%s", trunc_char(col_POS_NAME    ));
+		
+		if (strlen(col_USER_ID) == 0) {
+			printf("행번없음 : [%s] [%s] [%s] [%s]\n", col_USER_ID, col_DEPT_ID, col_NAME, col_POS_NAME);
+			continue;
+		}
+		
+	    /*-------------------------------------------------------*/
+	    /*   형상관리의 기 등록여부 조회                         */
+	    /*-------------------------------------------------------*/
+	    EXEC SQL
+	    	SELECT  CM_USERNAME
+	    	      , CM_PROJECT
+			      , CM_POSITION
+			      , CM_DUTY
+			      , CM_ACTIVE
+			      , CM_HANDRUN
+	    	  INTO  :col_ECAMS_USERNAME
+			      , :col_ECAMS_PROJECT
+	    	  	  , :col_ECAMS_POSITION
+			      , :col_ECAMS_DUTY
+			      , :col_ECAMS_ACTIVE
+			      , :col_ECAMS_HANDRUN
+	    	  FROM  CMM0040
+	    	 WHERE  CM_USERID = :col_USER_ID;
+
+	   	if (sqlca.sqlcode == 1403) {
+	   		nUserCnt = 0;
+	   	}
+	   	else {
+	   		nUserCnt = 1;
+
+			sprintf(col_ECAMS_USERNAME, "%s", trunc_char(col_ECAMS_USERNAME));
+			sprintf(col_ECAMS_PROJECT , "%s", trunc_char(col_ECAMS_PROJECT ));
+			sprintf(col_ECAMS_POSITION, "%s", trunc_char(col_ECAMS_POSITION));
+			sprintf(col_ECAMS_DUTY    , "%s", trunc_char(col_ECAMS_DUTY    ));
+			sprintf(col_ECAMS_HANDRUN , "%s", trunc_char(col_ECAMS_HANDRUN ));
+			sprintf(col_ECAMS_ACTIVE  , "%s", trunc_char(col_ECAMS_ACTIVE  ));
+	   	}
+
+
+
+	    /*-------------------------------------------------------*/
+	    /*   직위코드 정보 작성                                  */
+	    /*-------------------------------------------------------*/
+		EXEC SQL
+			SELECT  DECODE(CM_CLOSEDT, NULL, 1, 2)
+			  INTO  :nCnt
+			  FROM  CMM0020
+			 WHERE  CM_MACODE = 'POSITION'
+			   AND  CM_MICODE = :col_POS_ID;
+
+		if (sqlca.sqlcode == 1403)
+			nCnt = 0;
+
+		if (nCnt == 0) {
+			EXEC SQL
+				INSERT INTO CMM0020
+					( CM_MACODE
+					, CM_MICODE
+					, CM_CODENAME
+					, CM_CREATDT
+					, CM_LASTUPDT
+					, CM_CLOSEDT
+					, CM_USEYN
+					)
+				VALUES
+					( 'POSITION'
+					, :col_POS_ID
+					, :col_POS_NAME
+					, SYSDATE
+					, SYSDATE
+					, NULL
+					, 'Y'
+					);
+		}
+		else
+		if (nCnt == 2) {
+			EXEC SQL
+				UPDATE  CMM0020
+				   SET  CM_CODENAME = :col_POS_NAME
+					  , CM_LASTUPDT = SYSDATE
+					  , CM_CLOSEDT  = NULL
+					  , CM_USEYN    = 'Y'
+				 WHERE  CM_MACODE   = 'POSITION'
+				   AND  CM_MICODE   = :col_POS_ID;
+		}
+
+
+	    /*-------------------------------------------------------*/
+	    /*   직책코드 정보 작성                                  */
+	    /*-------------------------------------------------------*/
+	    sprintf(col_DUTY   , "%s", "99");
+	    sprintf(col_DUTY_NM, "%s", "직원");
+	    
+		EXEC SQL
+			SELECT  DECODE(CM_CLOSEDT, NULL, 1, 2)
+			  INTO  :nCnt
+			  FROM  CMM0020
+			 WHERE  CM_MACODE = 'DUTY'
+			   AND  CM_MICODE = :col_DUTY;
+
+		if (sqlca.sqlcode == 1403)
+			nCnt = 0;
+
+		if (nCnt == 0) {
+			EXEC SQL
+				INSERT INTO CMM0020
+					( CM_MACODE
+					, CM_MICODE
+					, CM_CODENAME
+					, CM_CREATDT
+					, CM_LASTUPDT
+					, CM_CLOSEDT
+					, CM_USEYN
+					)
+				VALUES
+					( 'DUTY'
+					, :col_DUTY
+					, :col_DUTY_NM
+					, SYSDATE
+					, SYSDATE
+					, NULL
+					, 'Y'
+					);
+		}
+		else
+		if (nCnt == 2) {
+			EXEC SQL
+				UPDATE  CMM0020
+				   SET  CM_CODENAME = :col_DUTY_NM
+					  , CM_LASTUPDT = SYSDATE
+					  , CM_CLOSEDT  = NULL
+					  , CM_USEYN    = 'Y'
+				 WHERE  CM_MACODE   = 'DUTY'
+				   AND  CM_MICODE   = :col_DUTY;
+		}
+
+		strcpy(col_MANID,"Y");
+
+	
+		/*-------------------------------------------------------*/
+		/*	사용자정보 등록 및 변경                              */
+		/*-------------------------------------------------------*/
+	   	if (nUserCnt == 0) {
+	   		fprintf(stdout, "신규등록대상 : [%s] [%s] [%s] [%s]\n"
+	   					  , col_USER_ID, col_NAME, col_DEPT_ID, col_EMPNO);
+	   		EXEC SQL
+	   			INSERT INTO  CMM0040
+	   				( CM_USERID
+					, CM_USERNAME
+					, CM_ERCOUNT
+					, CM_ADMIN
+					, CM_MANID
+					, CM_STATUS
+					, CM_PROJECT
+					, CM_ACTIVE
+					, CM_POSITION
+					, CM_DUTY
+					, CM_CLSDATE
+					, CM_HANDRUN
+					, CM_CHANGEDT
+					, CM_DUMYPW
+					, CM_JUMINNUM
+	   				)
+	   			VALUES
+	   				( :col_USER_ID
+					, :col_NAME
+					,  0
+					, '0'
+					, :col_MANID
+					, '0'
+					, :col_DEPT_ID
+					, '1'
+					, :col_POS_ID
+					, :col_DUTY
+					, NULL
+					, 'N'
+					, SYSDATE
+					, '1234'
+					, '1234');
+	   	}
+	   	
+	    /*-------------------------------------------------------*/
+	    /*   형상관리에서 사용자 정보 변경                       */
+	    /*-------------------------------------------------------*/
+	   	else {			
+	   		EXEC SQL
+				UPDATE  CMM0040
+				   SET CM_ACTIVE   = '1'
+				      , CM_CLSDATE  = NULL
+			     WHERE  CM_USERID   = :col_USER_ID;
+			if (sqlca.sqlcode != 0) {
+				fprintf(stdout, " 사용자 사용여부 업데이트 실패 [%s][%d]\n", col_USER_ID, sqlca.sqlcode);
+				continue;
+			}else {
+				fprintf(stdout, " 사용자 사용여부 업데이트 완료[%s] %d \n", col_USER_ID, sqlca.sqlcode);
+			}			     
+			
+					     
+		   	if (strcmp(col_ECAMS_PROJECT , col_DEPT_ID     ) != 0 ||
+				strcmp(col_ECAMS_POSITION, col_POS_ID      ) != 0 ||
+				strcmp(col_ECAMS_DUTY    , col_DUTY        ) != 0 ||
+				strcmp(col_ECAMS_ACTIVE  , "0"        ) == 0 ) {
+				if (memcmp(col_ECAMS_HANDRUN, "Y", 1) != 0) {
+					printf("%s:%s %s:%s %s:%s \n"
+							, col_ECAMS_PROJECT , col_DEPT_ID     
+							, col_ECAMS_POSITION, col_POS_ID      
+							, col_ECAMS_DUTY    , col_DUTY  
+						  );
+					
+					
+					EXEC SQL
+						UPDATE  CMM0040
+						   SET  CM_PROJECT  = :col_DEPT_ID
+						      , CM_POSITION = :col_POS_ID
+						      , CM_DUTY     = :col_DUTY		
+						      , CM_ACTIVE   = '1'
+						      , CM_CLSDATE  = NULL
+						      , CM_CHANGEDT = SYSDATE
+					     WHERE  CM_USERID   = :col_USER_ID;
+				}
+			}
+	   	}
+	
+	   	if (sqlca.sqlcode != 0) {
+	   		fprintf(stderr, "사용자 등록오류 : [%d] [%s] [%s]\n", sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc,col_USER_ID);
+	   	}
+
+	   	/*-------------------------------------------------------*/
+	    /*   기본권한부여 (기본사용자)                           */
+	    /*-------------------------------------------------------*/
+		EXEC SQL
+			SELECT  COUNT(*)
+			  INTO  :nCnt
+			  FROM  CMM0043
+			 WHERE  CM_USERID = :col_USER_ID
+			   AND  CM_RGTCD  = '90';
+
+		if (sqlca.sqlcode == 1403)
+			nCnt = 0;
+
+		if (nCnt == 0) {
+			EXEC SQL
+				INSERT INTO CMM0043
+					( CM_USERID
+					 ,CM_RGTCD
+					 ,CM_CREATDT
+					 ,CM_LASTDT
+					)
+				VALUES
+					( :col_USER_ID
+					, '90'
+					, SYSDATE
+					, SYSDATE
+					);
+
+			if (sqlca.sqlcode != 0) {
+		   		fprintf(stderr, "권한 등록오류 : [%d] [%s] [%s]\n", sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc,col_USER_ID);
+		   	}
+		}
+		EXEC SQL COMMIT;
+
+	}
+	EXEC SQL close INSA_LIST;	
+	
+	
+	EXEC SQL 
+		UPDATE  CMM0040
+		   SET  CM_MANID = 'N'
+		 WHERE  CM_USERID LIKE '49%'
+		   AND  CM_MANID != 'N';
+		   
+	
+
+        EXEC SQL
+		UPDATE CMM0040 
+                   SET CM_ACTIVE ='0'
+                 WHERE CM_USERID IN(
+			select cm_userid from cmm0040 a, CMM0100 b
+			where a.cm_handrun != 'Y'   
+			  and a.cm_project = b.cm_deptcd
+			  and b.cm_deptcd in(select cm_deptcd from cmm0100 where (cm_deptcd  > '0399' and cm_deptcd  < '0900'))
+                 );
+
+
+	
+	EXEC SQL
+		DELETE  EAI_CMM0100;
+
+	EXEC SQL
+		DELETE  EAI_CMM0040;
+
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit(0);
+}
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/
+

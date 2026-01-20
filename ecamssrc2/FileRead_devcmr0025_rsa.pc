@@ -1,0 +1,288 @@
+/*-----------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ FileRead_devcmr0025.pc                       │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 개발형상관리의 최종버전 파일로 작성 프로그램 │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2013. 05. 08                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+/*---------------------------------------------------------------*/
+/*		Structure for VARRAW                                     */
+/*---------------------------------------------------------------*/
+#define TERM(X) ( X.arr[X.len] = '\0' )
+#define SLEN(X) ( X.len = strlen((char *)X.arr) )
+
+
+#define READ_SIZE 100
+
+typedef struct
+{
+	short len;
+	char  arr[READ_SIZE];
+} vr;
+
+
+/*---------------------------------------------------------------*/
+/*       Oracle Sql Bind 변수 DEFINE                             */
+/*---------------------------------------------------------------*/
+EXEC SQL BEGIN DECLARE SECTION;
+    EXEC SQL TYPE vr IS VARRAW(READ_SIZE);
+    vr my_vr;
+EXEC SQL END DECLARE SECTION;
+
+
+/*---------------------------------------------------------------*/
+/*       INTERNAL  FUNCTION  DEFINE                              */
+/*---------------------------------------------------------------*/
+int 	o_error(char *, char *);
+
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+FILE *fp;
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*    CMR0025에서 READ하여 파일에 Write 처 리   MAIN             */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char **envp)
+{
+char  	action_str                 [512];
+long  	amount                          ;
+long  	offset                          ;
+short 	done                            ;
+long  	total                           ;
+char 	szItemID	          [dfItemID];
+char 	szDevItemID	          [dfItemID];
+char 	szOutName           [dfFullPath];
+char 	szOutName2          [dfFullPath];
+char 	szDirName           [dfFullPath];
+char 	szBackPath               [dfDir];
+char 	szCmd               [dfFullPath];
+char	szSysCD                [dfSysCD];
+char	szDsnCD                [dfDsnCD];
+char	szDirPath                [dfDir];
+char	szRsrcName          [dfRsrcName];
+int 	retval                          ;
+int	 	szVersion                       ;
+int	 	nCnt                            ;
+int 	nRet                            ;
+
+
+	if (argc != 3) {
+        printf ("usage : %s <ITEMID> <OutFileName> \n", argv[0]);
+        exit (0);
+    }
+
+    sprintf(szItemID , "%s", argv[1]);
+	sprintf(szOutName, "%s", argv[2]);
+	sprintf(szOutName2, "%s_20170325", argv[2]);
+	if (access(szOutName2, F_OK) == 0)	exit (9);
+
+	sprintf(szCmd, "cp -p '%s' '%s_20170327'", szOutName, szOutName);
+	system (szCmd);
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE) {
+		exit(1);
+	}
+
+    /*-----------------------------------------------------------*/
+    /*   디렉토리명, 프로그램명 조회                             */
+    /*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  A.CR_SYSCD
+		      , A.CR_RSRCNAME
+		      , B.CM_DIRPATH
+		  INTO  :szSysCD
+		  	  , :szRsrcName
+		  	  , :szDirPath
+		  FROM  CMR0020 A
+		      , CMM0070 B
+		 WHERE  A.CR_ITEMID = :szItemID
+		   AND  A.CR_SYSCD  = B.CM_SYSCD
+		   AND  A.CR_DSNCD  = B.CM_DSNCD;
+
+	if (sqlca.sqlcode != 0)		exit (2);
+		
+	NotUseDataTruncate (szDirPath , 0x20);
+	NotUseDataTruncate (szRsrcName, 0x20);
+	
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	sprintf(szConnID, "%s", "DEVECAMS");
+	if (ConnectDB2(szConnID) == FALSE) {
+		exit(1);
+	}
+	
+    /*-----------------------------------------------------------*/
+    /*   개발의 프로그램등록번호 조회                            */
+    /*-----------------------------------------------------------*/
+	EXEC SQL AT :szConnID
+		SELECT  A.CR_ITEMID
+		      , A.CR_LSTVER
+		  INTO  :szDevItemID
+		  	  , :szVersion
+		  FROM  CMR0020 A
+		      , CMM0070 B
+		 WHERE  A.CR_SYSCD    = :szSysCD
+		   AND  A.CR_RSRCNAME = :szRsrcName
+		   AND  B.CM_DIRPATH  = :szDirPath
+		   AND  A.CR_SYSCD    = B.CM_SYSCD
+		   AND  A.CR_DSNCD    = B.CM_DSNCD;
+
+	if (sqlca.sqlcode != 0)	{
+		fprintf(stderr, "SQLCODE = [%d]\n", sqlca.sqlcode);
+		fprintf(stderr, "szSysCD     = [%s]\n", szSysCD    );
+		fprintf(stderr, "szRsrcName  = [%s]\n", szRsrcName );
+		fprintf(stderr, "szDirPath   = [%s]\n", szDirPath  );
+		exit (3);
+	}
+		
+	NotUseDataTruncate (szDevItemID, 0x20);
+	
+    /*-----------------------------------------------------------*/
+    /*   파일의 존재여부 체크                                    */
+    /*-----------------------------------------------------------*/
+	EXEC SQL AT :szConnID
+		SELECT  COUNT(*)
+		  INTO  :nCnt
+		  FROM  CMR0025
+		 WHERE  CR_ITEMID = :szDevItemID
+		   AND  CR_VER    = :szVersion;
+
+	if (sqlca.sqlcode != 0) {
+		fprintf(stderr, "%d %s\n", sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc);
+		exit(1);
+	}
+
+	if (nCnt == 0) {
+		fprintf(stderr, "FILE NOT FOUND %d [%s] [%d]\n", nCnt, szItemID, szVersion);
+		exit(9);
+	}
+
+	nRet = Right_Char_Check(szOutName, '/');
+	if (nRet > 0) {
+		sprintf(szDirName, "%s", left_char(szOutName, nRet-1));
+		Local_Dir_Make(szDirName);
+	}
+
+
+    fp = fopen(szOutName,"wb");
+
+    /*-------------------------------------------------------*/
+    /*		BLOB READ 하여 FILE 에 WRITE                     */
+    /*-------------------------------------------------------*/
+    strcpy( action_str, "Fetching BLOB Locator...");
+	EXEC SQL WHENEVER SQLERROR DO o_error(action_str, szOutName);
+
+    EXEC SQL  AT :szConnID  EXECUTE
+	    BEGIN
+			SELECT  CR_FILE
+			  INTO  blob_it.my_blob
+			  FROM  CMR0025
+			 WHERE  CR_ITEMID = :szDevItemID
+			   AND  CR_VER    = :szVersion;
+
+	       #ifndef V8
+	       :total := blob_it.get_blob_len;
+	       #else
+	       :total := DBMS_LOB.GETLENGTH(blob_it.my_blob);
+	       #endif
+	    END;
+	END-EXEC;
+
+
+    amount = READ_SIZE;
+    offset = 1;
+    done   = 0;
+
+    strcpy( action_str, "Reading From BLOB ...");
+
+    while (!done) {
+	    EXEC SQL AT :szConnID EXECUTE
+	        BEGIN
+	            #ifndef V8
+	            blob_it.read_blob(:amount,:offset,:my_vr);
+	            #else
+	            DBMS_LOB.READ(blob_it.my_blob,:amount,:offset,:my_vr);
+	            #endif
+	        END;
+		END-EXEC;
+
+		if (sqlca.sqlcode != 0) {
+			printf("DBMS_LOB_READ ERROR................[%d]\n",sqlca.sqlcode);
+			break;
+		}
+
+        offset += amount;
+
+        if (offset > total)
+            done = 1;
+
+        fwrite(my_vr.arr,(size_t)amount,(size_t)1,fp);
+    }
+    fclose(fp);
+
+    EXEC SQL WHENEVER SQLERROR CONTINUE;
+    EXEC SQL AT :szConnID ROLLBACK WORK RELEASE;
+    exit (0);
+}
+
+
+/*---------------------------------------------------------------*/
+/*		ORACLE  ERROR  처리  FUNCTION                            */
+/*---------------------------------------------------------------*/
+int 	o_error	( action_str , szOutName )
+char *action_str;
+char *szOutName;
+{
+int 	i                               ;
+char 	error_str                  [512];
+
+
+    EXEC SQL WHENEVER SQLERROR CONTINUE;
+
+    for ( i = 0; i < sqlca.sqlerrm.sqlerrml; i++ ) {
+        error_str[i] = sqlca.sqlerrm.sqlerrmc[i];
+    }
+
+    error_str[i] = '\0';
+    printf("\nFailed with following Oracle error while %s:\n%s\n",action_str, error_str );
+
+    EXEC SQL AT :szConnID ROLLBACK WORK RELEASE;
+
+	char szCmd[1024];
+	sprintf(szCmd, "rm -rf %s ", szOutName);
+	system(szCmd);
+
+    exit(1);
+}
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

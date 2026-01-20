@@ -1,0 +1,203 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_checkin_sub.pc                         │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 형상관리의 버전소스 동기화                   │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2011. 10. 25                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+typedef struct
+{
+	short len;
+	char  arr[100];
+} vr;
+
+/*---------------------------------------------------------------*/
+/*       Oracle Sql Bind 변수 DEFINE                             */
+/*---------------------------------------------------------------*/
+EXEC SQL BEGIN DECLARE SECTION;
+    EXEC SQL TYPE vr IS VARRAW(100);
+    vr my_vr;
+EXEC SQL END DECLARE SECTION;
+
+
+#define DEBUG 1
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath             [dfDir];
+
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			형상관리의 버전소스 동기화 처리   M A I N            */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+char	szSysCD                [dfSysCD];
+char	szCheckInDir             [dfDir];
+char	szDirPath                [dfDir];
+char	szChangDirPath           [dfDir];
+char	szDsnCD                [dfDsnCD];
+char	szRsrcCD              [dfRsrcCD];
+char	szRsrcName          [dfRsrcName];
+char	szItemID              [dfItemID];
+char	szJobCD                [dfJobCD];
+int 	szLstVer                        ;
+int 	szSvrSeq                        ;
+char	SysCmd                     [256];
+int 	retval                          ;
+int		nPid                            ;
+
+    if ( argc != 4 ) {
+        printf ("\nUsage : %s <시스템코드> <디렉토리> <프로그램명> \n\n", argv[0]);
+        exit (1);
+	}
+
+	sprintf(szSysCD     , "%s", argv[1]);
+	sprintf(szCheckInDir, "%s", argv[2]);
+	sprintf(szRsrcName  , "%s", argv[3]);
+	
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+	nPid = getpid ();
+	
+	retval = 0;
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE) {
+		printf("CONNECT ERROR \n");
+		exit(1);
+	}
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+
+	/*-----------------------------------------------------------*/
+    /*   소스백업 디렉토리                                       */
+    /*-----------------------------------------------------------*/
+	SetTempDir("93", gszBackPath);
+	
+
+	/*-----------------------------------------------------------*/
+    /*   소스 디렉토리 코드 조회                                 */
+    /*-----------------------------------------------------------*/
+	EXEC SQL DECLARE CHECKIN_Rsrc CURSOR FOR
+		SELECT  A.CR_DSNCD
+		      , A.CR_JOBCD
+		      , A.CR_RSRCCD
+		      , A.CR_LSTVER
+		      , A.CR_ITEMID
+		      , B.CM_DIRPATH
+		  FROM  CMR0020 A
+		      , CMM0070 B
+		 WHERE  A.CR_SYSCD    = :szSysCD
+		   AND  A.CR_RSRCNAME = :szRsrcName
+		   AND  A.CR_SYSCD  = B.CM_SYSCD
+		   AND  A.CR_DSNCD  = B.CM_DSNCD;
+
+	retval = 1;
+	EXEC SQL open  CHECKIN_Rsrc;
+    while (1) {
+		EXEC SQL fetch CHECKIN_Rsrc
+			INTO  :szDsnCD
+			    , :szJobCD
+			    , :szRsrcCD
+			    , :szLstVer
+			    , :szItemID
+			    , :szDirPath;
+
+		if (sqlca.sqlcode == 1403)	break;
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+			break;
+		}
+		
+		NotUseDataTruncate (szDsnCD  , 0x20);
+		NotUseDataTruncate (szJobCD  , 0x20);
+		NotUseDataTruncate (szRsrcCD , 0x20);
+		NotUseDataTruncate (szItemID , 0x20);
+		sprintf(szDirPath , "%s", trunc_char(szDirPath ));
+
+		/*-------------------------------------------------------*/
+	    /*   개발 서버 조회                                      */
+	    /*-------------------------------------------------------*/
+	    EXEC SQL
+	    	SELECT  CM_SEQNO
+	    	  INTO  :szSvrSeq
+	    	  FROM  CMM0038 
+	    	 WHERE  CM_SYSCD = :szSysCD
+	    	   AND  CM_RSRCCD = :szRsrcCD
+	    	   AND  CM_SVRCD  = '13';
+	    	   
+		ChangeVolPath(szSysCD, "13", szRsrcCD, szSvrSeq, szDirPath, szChangDirPath);
+		
+		if (strcmp(szCheckInDir, szChangDirPath) == 0) {
+			retval = 0;
+			break;
+		}
+	}
+	EXEC SQL close CHECKIN_Rsrc;
+
+	if (retval == 0) {
+		sprintf(SysCmd, "cp %s/%s %s%s 1>/dev/null 2>&1", szCheckInDir, szRsrcName, gszTempPath, szRsrcName);
+		retval = system(SysCmd) / 256;
+		if (retval == 0) {
+			sprintf(SysCmd, "FileUpdate_cmr0025 %s %s%s %d 1>/dev/null 2>&1", szItemID, gszTempPath, szRsrcName, szLstVer);
+			retval = system(SysCmd) / 256;
+		}
+		sprintf(SysCmd, "%s%s", gszTempPath, szRsrcName);
+		remove (SysCmd);
+	}
+		
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit(retval);
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

@@ -1,0 +1,927 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_gitlab_export.pc                        │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 형상관리의 자동신규 처리 SUB 프로그램        │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2023. 01. 10                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+typedef struct
+{
+	short len;
+	char  arr[100];
+} vr;
+
+/*---------------------------------------------------------------*/
+/*       Oracle Sql Bind 변수 DEFINE                             */
+/*---------------------------------------------------------------*/
+EXEC SQL BEGIN DECLARE SECTION;
+    EXEC SQL TYPE vr IS VARRAW(100);
+    vr my_vr;
+EXEC SQL END DECLARE SECTION;
+
+
+#define DEBUG 1
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+int 	Process_OpenFile		();
+int 	Process_CheckOut		();
+int 	Process_CheckIn 		();
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	szPGMName           [dfRsrcName];
+char	szUserID                    [20];
+char	szSysCD                [dfSysCD];
+char    szJobCD                [dfJobCD];
+char	szQryCD                [dfReqCD];
+char    szAcptNo              [dfAcptNo];
+char    szProgName          [dfRsrcName];
+char    szCommand                  [512];
+
+
+/*****************************************************************/
+/*                                                               */
+/*			형상관리의 자동신규 처리   M A I N                   */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+char	gszBinPath               [dfDir];
+char    szGitURL                   [256];
+char    szGitToken                  [50];
+char    szPrjName                  [101];
+char    szPrjID                     [11];
+char    szBranch                    [51];
+char	  szJobCD                [dfJobCD];
+char	  szPrjHome                   [50];
+
+char    szTarFile           [dfRsrcName];
+char    szTarDir                 [dfDir];
+char    szTarFull           [dfFullPath];
+char    szRstFile           [dfFullPath];
+char    szOutFile           [dfFullPath];
+char	QryStr                    [5000];
+int 	nCnt                            ;
+int 	nRet                            ;
+int     errCnt                          ;
+
+    if ( argc != 5 && argc != 6 ) {
+        printf ("\nUsage : %s <시스템코드> <업무코드> <사용자ID/Acptno> <구분(99:신규/01:체크아웃/04:체크인)> <검색프로그램> \n\n", argv[0]);
+        exit (1);
+	}
+
+	sprintf(szPGMName, "%s", argv[0]);
+	sprintf(szSysCD  , "%s", argv[1]);
+	sprintf(szJobCD  , "%s", argv[2]);
+	sprintf(szUserID , "%s", argv[3]);
+	sprintf(szQryCD  , "%s", argv[4]);
+	memset(szProgName,0x00,sizeof(szProgName));
+	if (argc == 6) {
+		sprintf(szProgName, "%s", argv[5]);		
+		NotUseDataTruncate (szProgName   ,	0x20);	
+	}
+
+	nRet = Right_Char_Check(szPGMName, '/');
+	if (nRet > 0) {
+		sprintf(szPGMName, "%s", right_char(szPGMName, strlen(szPGMName) - nRet));
+	}
+
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,"_gitlab.log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	/*-----------------------------------------------------------*/
+    	/*   Signal Define			                                 */
+    	/*-----------------------------------------------------------*/
+   	 DefineSignal ();
+	
+	if (strcmp(szQryCD,"99") != 0 && strcmp(szQryCD,"01") != 0 && strcmp(szQryCD,"04") != 0 && strcmp(szQryCD,"XX") != 0) {
+		sprintf(gszLogMsg,"%s Input Data Not Match [%s][%s][%s]", szPGMName, szSysCD, szUserID, szQryCD);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		exit(1);
+	}
+	if (strcmp(szQryCD,"04") == 0) {
+		if (strlen(szUserID) != 12) {
+			sprintf(gszLogMsg,"%s Input Data Not Match [%s][%s][%s]", szPGMName, szSysCD, szUserID, szQryCD);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			exit(1);
+		}
+		strcpy(szAcptNo,szUserID);
+	}
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE) {
+		sprintf(gszLogMsg,"%s ConnectDB Fail [%s][%s][%s]", szPGMName, szSysCD, szUserID, szQryCD);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		exit(1);
+	}
+
+	/*-----------------------------------------------------------*/
+    /*   Set Bin  Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("14", gszBinPath);
+	
+	/*-----------------------------------------------------------*/
+    /*   Bin Directory로 이동                                    */
+    /*-----------------------------------------------------------*/
+	chdir(gszBinPath);
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+	
+	/*-----------------------------------------------------------*/
+	/*	GITLAB서버정보조회                                            */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  'http://' || CM_SVRIP || ':' || CM_PORT,CM_SVRUSR
+		  INTO  :szGitURL, :szGitToken
+		  FROM  CMM0039
+		 WHERE  CM_SYSCD = :szSysCD
+		   AND  CM_DIRCD = 'RI';
+		   
+	if (sqlca.sqlcode != 0) {
+		sprintf(gszLogMsg,"[%s] GITLAB SERVER Information fail CMM0039 [%s][%s][%s]", szPGMName, szSysCD, szUserID, szQryCD);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		exit(1);	
+	}
+	NotUseDataTruncate (szGitURL  , 0x20);
+	NotUseDataTruncate (szGitToken, 0x20);
+	
+	/*-----------------------------------------------------------*/
+	/*	차세대 자동신규 여부 조회                                */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  COUNT(*)
+		  INTO  :nCnt
+		  FROM  CMM0034
+		 WHERE  CM_SYSCD = :szSysCD
+		   AND  CM_CLOSEDT IS NULL
+		   AND  CM_JOBCD = DECODE(:szJobCD,'XX',CM_JOBCD,:szJobCD)
+		   AND  CM_PRJNM IS NOT NULL;
+		   
+	if (nCnt==0) {
+		sprintf(gszLogMsg,"[%s] GITLAB JOBCD Information fail CMM0034 [%s][%s][%s][%s]", szPGMName, szSysCD, szJobCD, szUserID, szQryCD);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		exit(1);	
+	}
+	sprintf(szCommand,"rm -rf %s/%s_%s_%s_%s_*",gszTempPath,szUserID,szSysCD,szJobCD,szQryCD);
+	system(szCommand);
+	
+	if (strcmp(szQryCD,"99") == 0) sprintf(szRstFile, "%s%s.GIT.lst", gszTempPath, szUserID);
+	else if (strcmp(szQryCD,"XX") == 0) sprintf(szRstFile, "%s%s_%s_%s_%s.GIT", gszTempPath, szSysCD,szJobCD,szUserID,szQryCD);
+	else if (strcmp(szQryCD,"01") == 0) sprintf(szRstFile, "%s%s_%s_%s_%s.GIT", gszTempPath, szSysCD,szJobCD,szUserID,szQryCD);
+	
+	remove(szRstFile);
+		
+		
+	memset (QryStr, 0x00,  sizeof(QryStr));
+	sprintf(QryStr,"   SELECT A.CM_PRJNM,A.CM_PRJID,A.CM_BRANCH,A.CM_JOBCD,A.CM_PRJHOME  	  \n");
+	sprintf(QryStr,"%s   FROM CMM0034 A                                    		              \n", QryStr);
+	sprintf(QryStr,"%s  WHERE A.CM_SYSCD='%s'                               		          \n", QryStr,szSysCD);
+	sprintf(QryStr,"%s    AND A.CM_CLOSEDT IS NULL                       		              \n", QryStr);
+	sprintf(QryStr,"%s    AND A.CM_PRJNM IS NOT NULL                    		              \n", QryStr);
+	if (strcmp(szQryCD,"04") == 0) {
+		sprintf(QryStr,"%s    AND EXISTS (SELECT 1 FROM CMR1010              \n", QryStr);
+		sprintf(QryStr,"%s                 WHERE CR_ACPTNO=%s                \n", QryStr,szAcptNo);
+		sprintf(QryStr,"%s                   AND CR_PRCDATE IS NULL          \n", QryStr);
+		sprintf(QryStr,"%s                   AND CR_SYSCD=A.CM_SYSCD         \n", QryStr);
+		sprintf(QryStr,"%s                   AND CR_JOBCD=A.CM_JOBCD)        \n", QryStr);
+	} else {
+                sprintf(QryStr,"%s    AND A.CM_JOBCD='%s'                            \n", QryStr,szJobCD);      
+        }
+	EXEC SQL PREPARE S FROM :QryStr;
+	EXEC SQL DECLARE GITLAB_JOBINFO CURSOR FOR S;
+
+
+	
+	EXEC SQL open  GITLAB_JOBINFO;
+	while(1) {
+		EXEC SQL FETCH  GITLAB_JOBINFO
+			INTO  :szPrjName
+				, :szPrjID
+				, :szBranch
+				, :szJobCD
+				, :szPrjHome;
+
+		if (sqlca.sqlcode == 1403) 	break;
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+			sprintf(gszLogMsg, "[%s] GITLAB_JOBINFO DB FETCH ERROR [%s][%s][%s] : [%d][%s]", szPGMName,szSysCD, szUserID, szQryCD, sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			++errCnt;
+			break;
+		}
+
+		NotUseDataTruncate (szPrjName , 0x20);
+		NotUseDataTruncate (szPrjID   , 0x20);
+		NotUseDataTruncate (szBranch  , 0x20);
+		NotUseDataTruncate (szJobCD   , 0x20);
+		NotUseDataTruncate (szPrjHome , 0x20);
+		
+		sprintf(szTarDir,"%s/%s_%s_%s_%s",gszTempPath,szUserID,szSysCD,szQryCD,szJobCD);
+		sprintf(szTarFile,"%s_%s_%s_%s.zip",szUserID,szSysCD,szQryCD,szJobCD);
+		sprintf(szTarFull,"%s/%s",szTarDir,szTarFile);
+		
+		if (access(szTarDir,F_OK) == 0) {
+			sprintf(szCommand,"rm -rf '%s'",szTarDir);
+			system(szCommand);
+		}
+		Local_Dir_Make(szTarDir);
+		
+		sprintf(szCommand,"curl --header \"PRIVATE-TOKEN:%s\" \"%s/api/v4/projects/%s/repository/archive.zip?sha=%s\" --output %s",
+		                    szGitToken,szGitURL,szPrjID,szBranch,szTarFull);
+							
+   		sprintf(gszLogMsg, " [%s]  Curl Command Execute [%s][%s][%s] szCommand>[%s] ", szPGMName,szSysCD,szUserID,szQryCD, szCommand );
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+
+
+		nRet = system(szCommand) / 256;
+		if (nRet != 0) {
+			sprintf(gszLogMsg, "[%s] Command Execute Fail [%s][%s][%s] : [%s][%d]", szPGMName,szSysCD, szUserID, szQryCD, szCommand,nRet);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			++errCnt;
+			continue;	
+		}
+        if (access(szTarFull,F_OK) != 0) {
+			sprintf(gszLogMsg, "[%s] Export File Not Exists [%s][%s][%s] : [%s][%d]", szPGMName,szSysCD, szUserID, szQryCD, szCommand,nRet);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			++errCnt;
+			continue;	
+		}
+		if (FileSizeInf(szTarFull) == 0) {
+			sprintf(gszLogMsg, "[%s] Export File Size Zero [%s][%s][%s] : [%s][%d]", szPGMName,szSysCD, szUserID, szQryCD, szCommand,nRet);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			++errCnt;
+			continue;	
+		}
+		
+		sprintf(szCommand,"cd %s;unzip -O utf-8 %s",szTarDir,szTarFile);
+	    system(szCommand);
+		sprintf(szCommand,"rm -f %s/%s",szTarDir,szTarFile);
+		system(szCommand);
+		
+		sprintf(szOutFile,"%s/%s_%s_%s_%s.lst",gszTempPath,szUserID,szSysCD,szQryCD,szJobCD);
+		remove(szOutFile);
+		
+		/*sprintf(szCommand,"cd %s;ls -apRL >%s",szTarDir,szOutFile);*/
+		sprintf(szCommand,"cd %s;ls -apR >%s",szTarDir,szOutFile);
+		system(szCommand);	
+	/*	
+		sprintf(szCommand,"LANG=ko_KR.eucKR");
+		system(szCommand);
+*/
+		if (access(szOutFile,F_OK) == 0 && FileSizeInf(szOutFile)>0) {
+			if (strcmp(szQryCD,"99") == 0 || strcmp(szQryCD,"XX") == 0) nRet = Process_OpenFile(szJobCD,szProgName,szPrjName,szOutFile,szRstFile,szPrjHome,szTarDir);
+			else if (strcmp(szQryCD,"01") == 0) nRet = Process_CheckOut(szJobCD,szProgName,szPrjName,szTarDir,szOutFile,szRstFile);
+			else Process_CheckIn(szJobCD,szPrjName,szTarDir,szOutFile);
+		}
+		sprintf(szCommand,"rm -rf '%s'",szTarDir);
+		system(szCommand);
+	}
+	EXEC SQL close GITLAB_JOBINFO;
+	EXEC SQL COMMIT WORK RELEASE;
+
+
+	exit(0);
+}
+
+
+int Process_OpenFile( 
+                      char *pJobCD,
+					  char *pProgName,
+					  char *pPrjName,
+                      char *pOutFile, 
+                      char *pRstFile, 
+                      char *pPrjHome,
+					  char *pTarDir
+					 )
+{
+char	szDummy                   [2048];
+char	szDummy1            [dfFullPath];
+char	szDummy2            [dfFullPath];
+char    szLocalFileName     [dfFullPath];
+int 	nCnt                            ;
+int     nRet                            ;
+int     retval                          ;
+char	szRsrcName          [dfRsrcName];
+char	szDirPath                [dfDir];
+char	szLocalDir               [dfDir];
+char    szRsrcHome               [dfDir];
+char    szBaseDir                [dfDir];
+char    szRsrcCD              [dfRsrcCD];
+char    szLangCD              [dfLangCD];
+char	szRsrcCDMsg              [100+1];
+char	szLangCDMsg              [100+1];
+char	szSysMsg                   [100];
+char    szExeName                  [100]; 
+char    szRsrcList                 [100]; 
+char    mdb5val                     [33];
+FILE	*RstPtr                         ;
+FILE	*SrcPtr                         ;
+struct stat     fstat;
+
+	sprintf(gszLogMsg, "[%s] Process_OpenFile Start [%s][%s][%s] : [%s][%s][%s][%s][%s]", szPGMName,szSysCD, szUserID, szQryCD, pJobCD, pPrjName,pOutFile,pRstFile,pPrjHome);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+	
+    if ((SrcPtr = fopen(pOutFile, "r") ) == (FILE *) NULL) {
+    	sprintf(gszLogMsg, "[%s] Tar ls 결과 File Open Fail [%s][%s][%s] : [%s]", szPGMName,szSysCD, szUserID, szQryCD, pOutFile);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+    	return (1);
+    }
+
+    if ((RstPtr = fopen(pRstFile, "a+") ) == (FILE *) NULL) {
+    	sprintf(gszLogMsg, "[%s] 결과 File Open Fail [%s][%s][%s] : [%s]", szPGMName,szSysCD, szUserID, szQryCD, pRstFile);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+    	return (2);
+    }
+
+	retval = 0;
+	nCnt   = 0;
+	
+	memset(szDummy  , 0x00, sizeof(szDummy));
+	memset(szDummy1 , 0x00, sizeof(szDummy1));
+	memset(szDummy2 , 0x00, sizeof(szDummy2));
+	memset(szDirPath, 0x00, sizeof(szDirPath));
+	memset(szLocalDir, 0x00, sizeof(szLocalDir));
+	memset(szBaseDir, 0x00, sizeof(szBaseDir));
+	memset(szLocalFileName, 0x00, sizeof(szLocalFileName));
+	
+	sprintf(szDummy1,"%s",upper_char(pPrjName));
+	if (Char_Check(szDummy1,"IOS")>0) strcpy(szRsrcList,"T5,T6,T7,T8,T9,TC,TD");
+	else strcpy(szRsrcList,"T1,T2,T3,T4,TB,TE");
+	
+	while (fgets(szDummy, 2048, SrcPtr) != (char *) NULL) {
+        /*-------------------------------------------------------*/
+    	/* Return Valure Truncate                                */
+        /*-------------------------------------------------------*/
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r\n" , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\n"   , ""     ));
+        sprintf(szDummy, "%s", trunc_char(szDummy));
+ 		
+ 		
+		if (strlen(szDummy) == 0) continue;
+				
+		if (cmp_left_char(szDummy,1,".") == 0 && cmp_right_char(szDummy,1,":") == 0) {
+			if (strcmp(szDummy,".:")==0) continue;
+				
+			if (nCnt==0) {
+				++nCnt;
+				sprintf(szBaseDir,"%s",mid_char(szDummy,2,strlen(szDummy)-2));
+				strcpy(szDummy2,szBaseDir);
+				continue;
+			}
+			++nCnt;
+			
+			sprintf(szDummy1,"%s",mid_char(szDummy,2,strlen(szDummy)-2));
+			strcpy(szDummy2,szDummy1);
+			sprintf(szLocalDir,"%s",rep_char(szDummy1,szBaseDir,""));
+			
+			continue;
+		}
+		
+		sprintf(szDummy, "%s", trunc_char(szDummy));
+		if (cmp_right_char(szDummy,1,"/") == 0) continue;
+		
+		sprintf(szLocalFileName,"%s/%s/%s",pTarDir,szDummy2,szDummy);	
+		
+		if (access(szLocalFileName,F_OK) != 0) {
+			sprintf(gszLogMsg, "[%s] 파일아닌 목록 1 [%s][%s][%s] : [%s]", 
+				szPGMName,szSysCD, szUserID, szQryCD, szLocalFileName);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			continue;
+		}
+		if (FileSizeInf(szLocalFileName) == 0) {
+			sprintf(gszLogMsg, "[%s] 파일Size Zero [%s][%s][%s] : [%s]", 
+				szPGMName,szSysCD, szUserID, szQryCD, szLocalFileName);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			continue;
+		}	
+		if(stat(szLocalFileName, &fstat) == -1 ) {
+			sprintf(gszLogMsg, "[%s] 파일아닌 목록 2 [%s][%s][%s] : [%s]", 
+				szPGMName,szSysCD, szUserID, szQryCD, szLocalFileName);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			continue;
+        }
+		
+		if( S_ISREG(fstat.st_mode) != 1 ) {
+			sprintf(gszLogMsg, "[%s] 파일아닌 목록 3 [%s][%s][%s] : [%s]", 
+				szPGMName,szSysCD, szUserID, szQryCD, szLocalFileName);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			continue;
+        }
+		memset(szRsrcName , 0x00, sizeof(szRsrcName));
+		memset(szRsrcCDMsg, 0x00, sizeof(szRsrcCDMsg));
+		memset(szLangCDMsg, 0x00, sizeof(szLangCDMsg));
+		memset(szExeName  , 0x00, sizeof(szExeName ));
+		strcpy(szRsrcName, szDummy);
+		
+		if (strlen(pProgName)>0) {
+			if (Char_Check(szRsrcName,pProgName)<0) {
+				continue;
+			}
+		}
+		
+		/*if (cmp_left_char(szRsrcName,1,".") == 0) continue;*/
+		
+				
+		nRet = Right_Char_Check(szRsrcName, '.');
+		if (nRet > 0) {
+			nRet = nRet -1;
+			sprintf(szExeName,"%s,",right_char(szRsrcName,strlen(szRsrcName)-nRet));
+			
+			// 프로그램확장자추출 [90001][219091][99] : [Podfile.lock][ock,]  [8][ock,][T5,T6,T7,T8,T9,TC,TD]
+						
+			EXEC SQL
+			   SELECT B.CM_CODENAME,B.CM_MICODE
+				 INTO :szRsrcCDMsg, :szRsrcCD
+				 FROM CMM0020 B,CMM0036 A
+				WHERE A.CM_SYSCD=:szSysCD
+				  AND A.CM_CLOSEDT IS NULL
+				  AND INSTR(:szRsrcList,A.CM_RSRCCD)>0
+				  AND B.CM_MACODE='JAWON'
+				  AND B.CM_MICODE=A.CM_RSRCCD
+				  AND A.CM_EXENAME IS NOT NULL
+				  AND INSTR(A.CM_EXENAME||',',:szExeName)>0;
+			if (sqlca.sqlcode != 0 && sqlca.sqlcode != 1403) {				
+				sprintf(gszLogMsg, "[%s] 프로그램유형 Read Fail 1 [%s][%s][%s] : [%s][%s]  [%d][%s]", 
+					szPGMName,szSysCD, szUserID, szQryCD, szRsrcName,szExeName,sqlca.sqlcode,sqlca.sqlerrm.sqlerrmc);
+				eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+				retval = 1;
+				break;
+			}
+			sprintf(szRsrcCDMsg, "%s", trunc_char(szRsrcCDMsg));
+			NotUseDataTruncate (szRsrcCD, 0x20);
+			
+		} 
+		if (strlen(szRsrcCDMsg)==0) {
+			EXEC SQL
+			   SELECT B.CM_CODENAME,B.CM_MICODE
+				 INTO :szRsrcCDMsg, :szRsrcCD
+				 FROM CMM0020 B,CMM0036 A
+				WHERE A.CM_SYSCD=:szSysCD
+				  AND A.CM_CLOSEDT IS NULL
+				  AND INSTR(:szRsrcList,A.CM_RSRCCD)>0
+				  AND B.CM_MACODE='JAWON'
+				  AND B.CM_MICODE=A.CM_RSRCCD
+				  AND A.CM_EXENAME IS NULL;
+			if (sqlca.sqlcode != 0 && sqlca.sqlcode != 1403) {				
+				sprintf(gszLogMsg, "[%s] 프로그램유형 Read Fail 2 [%s][%s][%s] : [%s]  [%d][%s]", 
+					   szPGMName,szSysCD, szUserID, szQryCD, szRsrcName,sqlca.sqlcode,sqlca.sqlerrm.sqlerrmc);
+				eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+				retval = 2;
+				break;
+			}
+			sprintf(szRsrcCDMsg, "%s", trunc_char(szRsrcCDMsg));
+			NotUseDataTruncate (szRsrcCD, 0x20);
+		}	  
+		
+		if (strlen(szRsrcCDMsg) ==0) {			
+			sprintf(gszLogMsg, "[%s] 프로그램유형 선택 정의 Fail [%s][%s][%s] : [%s]", szPGMName,szSysCD, szUserID, szQryCD, szRsrcName);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			continue;
+		}
+		
+		if (strcmp(szRsrcCD,"T1") == 0) strcpy(szLangCD,"61");         /* Android-APK  */
+		else if (strcmp(szRsrcCD,"T2") == 0) strcpy(szLangCD,"03");    /* Android-JAVA */
+		else if (strcmp(szRsrcCD,"T3") == 0) strcpy(szLangCD,"50");    /* Android-XML  */
+		else if (strcmp(szRsrcCD,"T4") == 0 || strcmp(szRsrcCD,"T9") == 0) strcpy(szLangCD,"99"); /* Android-기타,IOS-기타 */
+		else if (strcmp(szRsrcCD,"T5") == 0) strcpy(szLangCD,"97");    /* IOS-IPA      */
+		else if (strcmp(szRsrcCD,"T6") == 0) strcpy(szLangCD,"B3");    /* IOS-Object C */
+		else strcpy(szLangCD,"99"); /* 그외 */
+				 
+		EXEC SQL
+		   SELECT B.CM_CODENAME
+			 INTO :szLangCDMsg
+			 FROM CMM0020 B
+			WHERE B.CM_MACODE='LANGUAGE'
+			  AND B.CM_MICODE=:szLangCD;
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != 1403) {				
+			sprintf(gszLogMsg, "[%s] 언어유형 Read Fail [%s][%s][%s] : [%s][%s][%s]  [%d][%s]", 
+				   szPGMName,szSysCD, szUserID, szQryCD, szRsrcName,szRsrcCD,szLangCD,sqlca.sqlcode,sqlca.sqlerrm.sqlerrmc);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			
+			retval = 3;
+			break;
+		}
+		sprintf(szLangCDMsg, "%s", trunc_char(szLangCDMsg));
+		
+		EXEC SQL
+		   SELECT B.CM_VOLPATH
+			 INTO :szRsrcHome
+			 FROM CMM0038 B,CMM0031 A
+			WHERE A.CM_SYSCD=:szSysCD
+			  AND A.CM_SVRCD='01'
+			  AND A.CM_CLOSEDT IS NULL
+			  AND A.CM_SYSCD=B.CM_SYSCD
+			  AND A.CM_SVRCD=B.CM_SVRCD
+			  AND A.CM_SEQNO=B.CM_SEQNO	
+			  AND B.CM_RSRCCD=:szRsrcCD;
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != 1403) {				
+			sprintf(gszLogMsg, "[%s] 프로그램홈경로 Read Fail [%s][%s][%s] : [%s][%s][%s]  [%d][%s]", 
+				   szPGMName,szSysCD, szUserID, szQryCD, szRsrcName,szRsrcCD,szLangCD,sqlca.sqlcode,sqlca.sqlerrm.sqlerrmc);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			
+			retval = 4;
+			break;
+		}
+
+/*
+		01904	JB업무지원(Android)  JBDeskAndroid    /sw/p_was/jbdeskandroid
+		01906	JB개인뱅킹(Android)  JBPBAndroid      /sw/p_was/jbpbandroid
+		01908	JB기업뱅킹(Android)  JBSMBAndroid     /sw/p_was/jbsmbandroid
+
+		01905	JB업무지원(iOS)      JBDeskSwiftIOS   /sw/p_was/jbdeskios
+		01907	JB개인뱅킹(iOS)      JBPBiOS          /sw/p_was/jbpbios
+		01909	JB기업뱅킹(iOS)      JBSMBiOS         /sw/p_was/jbsmbios
+
+		if (strcmp(pJobCD,"01904") == 0) 	sprintf(szRsrcHome, "%s/%s", trunc_char(szRsrcHome),pPrjHome);	  
+		else if (strcmp(pJobCD,"01906") == 0) 	sprintf(szRsrcHome, "%s/jbpbandroid", trunc_char(szRsrcHome),pPrjHome);	  
+		else if (strcmp(pJobCD,"01908") == 0) 	sprintf(szRsrcHome, "%s/jbsmbandroid", trunc_char(szRsrcHome),pPrjHome);	  
+		else if (strcmp(pJobCD,"01905") == 0) 	sprintf(szRsrcHome, "%s/jbdeskios", trunc_char(szRsrcHome),pPrjHome);	  			
+		else if (strcmp(pJobCD,"01907") == 0) 	sprintf(szRsrcHome, "%s/jbpbios", trunc_char(szRsrcHome));	  
+		else if (strcmp(pJobCD,"01909") == 0) 	sprintf(szRsrcHome, "%s/jbsmbios", trunc_char(szRsrcHome));	  
+		  
+*/
+			
+		sprintf(szRsrcHome, "%s/%s", trunc_char(szRsrcHome),pPrjHome);	  
+
+		sprintf(szDirPath,"%s%s",szRsrcHome,szLocalDir);
+		
+		if (strcmp(szQryCD,"XX") == 0) {
+			nRet = MD5SUM(szLocalFileName,mdb5val);
+			if (nRet != 0) {		
+			    memset(mdb5val  , 0x00, sizeof(mdb5val )); 
+				sprintf(gszLogMsg, "[%s] MD5SUM Fail [%s][%s][%s] : [%s]", szPGMName,szSysCD, szUserID, szQryCD, szLocalFileName);
+				eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			}
+			fprintf(RstPtr,"%s\t%s\t%s\t%s\t%s\n",szRsrcName,szDirPath,szRsrcCD,szLangCD,mdb5val);
+		} else fprintf(RstPtr,"%s\t%s\t%s\tgitlab auto\t%s\t%s\t%s\n",pJobCD,szUserID,szRsrcName,szDirPath,szRsrcCDMsg,szLangCDMsg);		
+	}
+    fclose (SrcPtr);
+    fclose (RstPtr);
+	
+	remove (pOutFile);
+	
+	sprintf(gszLogMsg, "[%s] Process_OpenFile End [%s][%s][%s] : [%s][%s][%s][%s][%d]", szPGMName,szSysCD, szUserID, szQryCD, pJobCD,pPrjName,pOutFile,pRstFile,retval);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+	
+	return (retval);
+
+}
+int Process_CheckOut( 
+                      char *pJobCD,
+					  char *pProgName,
+					  char *pPrjName,
+					  char *pTarDir,
+                      char *pOutFile, 
+                      char *pRstFile 
+					 )
+{
+char	szDummy                   [2048];
+char	szDummy1            [dfFullPath];
+int 	nCnt                            ;
+int     nRet                            ;
+int     retval                          ;
+char	szRsrcName          [dfRsrcName];
+char	szDirPath                [dfDir];
+char    szItemID              [dfItemID];
+char    szLocalDir               [dfDir];
+char    szRsrcHome               [dfDir];
+char    szLocalFileName     [dfFullPath];
+char    szBaseDir			     [dfDir];
+char    szMD5Sum                    [33];
+char    mdb5val                     [33];
+char    szRsrcList                 [100]; 
+FILE	*RstPtr                         ;
+FILE	*SrcPtr                         ;
+	
+	sprintf(gszLogMsg, "[%s] Process_CheckOut Start [%s][%s][%s] : [%s][%s][%s][%s][%s]", szPGMName,szSysCD, szUserID, szQryCD, pJobCD,pPrjName,pTarDir,pOutFile,pRstFile);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+	
+    if ((SrcPtr = fopen(pOutFile, "r") ) == (FILE *) NULL) {
+    	sprintf(gszLogMsg, "[%s] Tar ls 결과 File Open Fail [%s][%s][%s] : [%s]", szPGMName,szSysCD, szUserID, szQryCD, pOutFile);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+    	return (1);
+    }
+
+    if ((RstPtr = fopen(pRstFile, "a+") ) == (FILE *) NULL) {
+    	sprintf(gszLogMsg, "[%s] 결과 File Open Fail [%s][%s][%s] : [%s]", szPGMName,szSysCD, szUserID, szQryCD, pRstFile);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+    	return (2);
+    }
+
+    retval = 0;
+    nCnt   = 0;
+    
+	memset(szDummy   , 0x00, sizeof(szDummy));
+	memset(szDummy1  , 0x00, sizeof(szDummy1));
+	memset(szDirPath , 0x00, sizeof(szDirPath));
+	memset(szLocalDir, 0x00, sizeof(szLocalDir));
+	memset(szBaseDir , 0x00, sizeof(szBaseDir));
+	memset(szLocalFileName, 0x00, sizeof(szLocalFileName));
+	
+	sprintf(szDummy1,"%s",upper_char(pPrjName));
+	if (Char_Check(szDummy1,"IOS")>0) strcpy(szRsrcList,"T5,T6,T7,T8,T9,TC,TD");
+	else strcpy(szRsrcList,"T1,T2,T3,T4,TB,TE");
+	
+	while (fgets(szDummy, 2048, SrcPtr) != (char *) NULL) {
+        /*-------------------------------------------------------*/
+    	/* Return Valure Truncate                                */
+        /*-------------------------------------------------------*/
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r\n" , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\n"   , ""     ));
+        sprintf(szDummy, "%s", trunc_char(szDummy));
+ 		
+ 		if (strlen(szDummy) == 0) continue;
+		if (cmp_left_char(szDummy,1,"d") == 0) continue;
+		if (cmp_left_char(szDummy,1,".") == 0 && cmp_right_char(szDummy,1,":") == 0) {
+			if (strcmp(szDummy,".:")==0) continue;
+				
+			if (nCnt==0) {
+				++nCnt;
+				sprintf(szBaseDir,"%s",mid_char(szDummy,2,strlen(szDummy)-2));
+				continue;
+			}
+			++nCnt;
+			
+			sprintf(szDummy1,"%s",mid_char(szDummy,2,strlen(szDummy)-2));
+			sprintf(szLocalDir,"%s",rep_char(szDummy1,szBaseDir,""));
+			
+			continue;
+		}
+		/*if (strlen(szLocalDir)>0 && Char_Check(szLocalDir,".")>=0) continue;*/
+		/*
+		while (1) {
+			sprintf(szDummy, "%s", trunc_char(szDummy));
+			nRet= Char_Check(szDummy, " ");
+
+			if (nRet < 0)	break;
+
+  			sprintf(szDummy, "%s", right_char(szDummy, strlen(szDummy) - nRet - 1));
+		}
+		*/
+		sprintf(szDummy, "%s", trunc_char(szDummy));
+		if (cmp_right_char(szDummy,1,"/") == 0) continue;
+		
+        memset(szRsrcName , 0x00, sizeof(szRsrcName));
+        strcpy(szRsrcName, szDummy);		
+
+		if (strlen(pProgName)>0) {
+			if (Char_Check(szRsrcName,pProgName)<0) continue;
+		}
+		
+    	sprintf(gszLogMsg, "[%s] 프로그램목록 리스트 [%s][%s][%s] szLocalDir[%s] szRsrcName[%s]", szPGMName,szSysCD, szUserID, szQryCD, szLocalDir, szRsrcName);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		
+	    EXEC SQL
+		   SELECT A.CR_ITEMID,A.CR_ACPTNO 
+		     INTO :szItemID, :szAcptNo
+			 FROM CMM0034 C,CMM0070 B,CMR0020 A
+			WHERE A.CR_SYSCD=:szSysCD
+			  AND A.CR_RSRCNAME=:szRsrcName
+			  AND A.CR_STATUS='0'
+			  AND A.CR_LSTVER>0
+              AND A.CR_JOBCD=:pJobCD
+			  AND A.CR_SYSCD=B.CM_SYSCD
+			  AND A.CR_DSNCD=B.CM_DSNCD
+			  AND A.CR_SYSCD=C.CM_SYSCD
+			  AND A.CR_JOBCD=C.CM_JOBCD
+			  AND B.CM_DIRPATH LIKE '%' || C.CM_PRJHOME || :szLocalDir;
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != 1403) {				
+			sprintf(gszLogMsg, "[%s] 프로그램정보 Read Fail [%s][%s][%s] : [%s][%s]  [%d][%s]", 
+			       szPGMName,szSysCD, szUserID, szQryCD, szDirPath,szRsrcName,sqlca.sqlcode,sqlca.sqlerrm.sqlerrmc);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			
+			retval = 3;
+			break;
+		}	  
+		if (sqlca.sqlcode == 1403) continue;
+		NotUseDataTruncate (szItemID  , 0x20);
+		NotUseDataTruncate (szAcptNo  , 0x20);
+		
+		EXEC SQL
+		   SELECT B.CR_MD5SUM
+		     INTO :szMD5Sum
+			 FROM CMR0021 B
+			WHERE B.CR_ITEMID=:szItemID
+			  AND B.CR_ACPTNO=:szAcptNo;		
+		if (sqlca.sqlcode != 0) {				
+			sprintf(gszLogMsg, "[%s] 프로그램최종버전정보 Read Fail [%s][%s][%s] : [%s][%s][%s][%s] {%d][%s]", 
+			    szPGMName,szSysCD, szUserID, szQryCD, szDirPath,szRsrcName,szItemID,szAcptNo,sqlca.sqlcode,sqlca.sqlerrm.sqlerrmc);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			
+			retval = 3;
+			break;
+		} 
+		NotUseDataTruncate (szMD5Sum  , 0x20);
+		
+		sprintf(szLocalFileName,"%s%s%s/%s",pTarDir,szBaseDir,szLocalDir,szRsrcName);
+		
+			sprintf(gszLogMsg, "[%s] LocalFile !!!!!!![%s][%s][%s] : [%s]", szPGMName,szSysCD, szUserID, szQryCD, szLocalFileName);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			
+			
+		if (access(szLocalFileName,F_OK) == 0) {
+			nRet = MD5SUM(szLocalFileName,mdb5val);
+			if (nRet != 0) {		
+				sprintf(gszLogMsg, "[%s] MD5SUM Fail [%s][%s][%s] : [%s]", szPGMName,szSysCD, szUserID, szQryCD, szLocalFileName);
+				eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+				continue;
+			}
+			
+			sprintf(gszLogMsg, "[%s] LocalFile md5sum [%s][%s][%s] : [%s]  [%s] [%s]", szPGMName,szSysCD, szUserID, szQryCD, szLocalFileName, mdb5val, szMD5Sum);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			
+			if (strcmp(mdb5val,szMD5Sum) == 0) continue;
+				
+			fprintf(RstPtr,"%s\n",szItemID);
+		} else {	
+			sprintf(gszLogMsg, "[%s] LocalFile Not Exists [%s][%s][%s] : [%s]", szPGMName,szSysCD, szUserID, szQryCD, szLocalFileName);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		}
+		
+	}
+    fclose (SrcPtr);
+    fclose (RstPtr);
+	
+	remove (pOutFile);
+	
+	
+	sprintf(gszLogMsg, "[%s] Process_CheckOut End [%s][%s][%s] : [%s][%s][%s][%s][%s][%d]", szPGMName,szSysCD, szUserID, szQryCD, pJobCD,pPrjName,pTarDir,pOutFile,pRstFile,retval);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+	
+	return (retval);
+
+}
+
+int Process_CheckIn( 
+                      char *pJobCD,
+					  char *pPrjName,
+					  char *pTarDir,
+                      char *pOutFile
+					 )
+{
+char	szDummy                   [2048];
+int 	nCnt                            ;
+int     nRet                            ;
+int     retval                          ;
+char	szRsrcName          [dfRsrcName];
+char	szDirPath                [dfDir];
+char    szItemID              [dfItemID];
+char    szLocalDir               [dfDir];
+char    szRsrcHome               [dfDir];
+char    szLocalFileName     [dfFullPath];
+char    szReqFileName       [dfFullPath];
+char    szReqPath                [dfDir];
+int     nSerNo                          ;
+char    szBaseDir			     [dfDir];
+FILE	*SrcPtr                         ;
+	
+	sprintf(gszLogMsg, "[%s] Process_CheckIn Start [%s][%s][%s] : [%s][%s][%s][%s]", szPGMName,szSysCD, szUserID, szQryCD, pJobCD,pPrjName,pTarDir,pOutFile);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		
+	if ((SrcPtr = fopen(pOutFile, "r") ) == (FILE *) NULL) {
+    	sprintf(gszLogMsg, "[%s] Tar ls 결과 File Open Fail [%s][%s][%s] : [%s]", szPGMName,szSysCD, szUserID, szQryCD, pOutFile);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+    	return (1);
+    }
+
+    retval = 0;
+    nCnt   = 0;
+    
+	memset(szDummy   , 0x00, sizeof(szDummy));
+	memset(szBaseDir , 0x00, sizeof(szBaseDir));
+	
+	while (fgets(szDummy, 2048, SrcPtr) != (char *) NULL) {
+        /*-------------------------------------------------------*/
+    	/* Return Valure Truncate                                */
+        /*-------------------------------------------------------*/
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r\n" , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\r"   , ""     ));
+        sprintf(szDummy, "%s", rep_char(szDummy, "\n"   , ""     ));
+        sprintf(szDummy, "%s", trunc_char(szDummy));
+ 		
+ 		if (strlen(szDummy) == 0) continue;
+		if (cmp_left_char(szDummy,1,"d") == 0) continue;
+		if (cmp_left_char(szDummy,1,".") == 0 && cmp_right_char(szDummy,1,":") == 0) {
+			if (strcmp(szDummy,".:")==0) continue;
+				
+			if (nCnt==0) {
+				++nCnt;
+				sprintf(szBaseDir,"%s",mid_char(szDummy,2,strlen(szDummy)-2));
+				break;
+			}
+		}
+	}	
+    fclose (SrcPtr);
+	
+	SetTempDir("77",szReqPath);
+	strcat(szReqPath,szAcptNo);
+	if (access(szReqPath,F_OK) != 0)
+		Local_Dir_Make(szReqPath);
+	
+			
+			
+	EXEC SQL DECLARE GITLAB_PROGLIST CURSOR FOR 
+	   SELECT A.CR_SERNO
+	         ,A.CR_RSRCNAME
+			 ,replace(B.CM_DIRPATH,E.CM_PRJHOME,'')
+			 ,D.CM_VOLPATH
+		 FROM CMM0034 E, CMM0038 D,CMM0031 C,CMM0070 B,CMR1010 A
+        WHERE A.CR_ACPTNO=:szAcptNo
+		    AND A.CR_JOBCD=:pJobCD
+		  	AND A.CR_SYSCD = E.CM_SYSCD
+		    AND A.CR_JOBCD = E.CM_JOBCD
+          AND A.CR_PRCDATE IS NULL
+          AND A.CR_SYSCD=B.CM_SYSCD
+          AND A.CR_DSNCD=B.CM_DSNCD
+		  AND A.CR_SYSCD=C.CM_SYSCD
+		  AND C.CM_SVRCD='01'
+		  AND C.CM_CLOSEDT IS NULL
+		  AND C.CM_SYSCD=D.CM_SYSCD
+		  AND C.CM_SVRCD=D.CM_SVRCD
+		  AND C.CM_SEQNO=D.CM_SEQNO
+		  AND A.CR_RSRCCD=D.CM_RSRCCD;
+	EXEC SQL open  GITLAB_PROGLIST;
+	while(1) {
+		EXEC SQL FETCH  GITLAB_PROGLIST
+			into  :nSerNo
+			    , :szRsrcName
+			    , :szDirPath
+				, :szRsrcHome;
+		if (sqlca.sqlcode == 1403)	break;
+
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+			sprintf(gszLogMsg,"[%s] GITLAB_PROGLIST DB FETCH ERROR : [%d][%s]", szAcptNo, sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			break;
+		}
+
+		NotUseDataTruncate (szRsrcName   , 0x20);	
+		NotUseDataTruncate (szDirPath    , 0x20);	
+		NotUseDataTruncate (szRsrcHome   , 0x20);	
+		
+		if (cmp_left_char(szDirPath,strlen(szRsrcHome),szRsrcHome) == 0) {
+			sprintf(szLocalDir,"%s",right_char(szDirPath,strlen(szDirPath)-strlen(szRsrcHome)));	
+		} else {
+			sprintf(gszLogMsg,"[%s] 프로그램홈경로 불일치 : [%s][%s][%s]", szAcptNo, szDirPath, szRsrcName, szRsrcHome);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			continue;
+		}
+		sprintf(szLocalFileName,"%s%s%s/%s",pTarDir,szBaseDir,szLocalDir,szRsrcName);
+		sprintf(szReqFileName,"%s/%s.%s.%d",szReqPath,szRsrcName,szAcptNo, nSerNo);
+		
+		if (access(szLocalFileName,F_OK) != 0){				
+			sprintf(gszLogMsg,"[%s] 체크인파일 없음 : [%s][%s][%s]", szAcptNo, szDirPath, szRsrcName, szLocalFileName);
+			eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+			continue;
+		}
+		
+		sprintf(szCommand,"cp '%s' '%s'",szLocalFileName,szReqFileName);
+		nRet = system(szCommand) / 256;
+		
+		sprintf(gszLogMsg,"[%s] 체크인파일 Copy : [%s][%s][%s] [%d]", szAcptNo, szDirPath, szRsrcName, szCommand,nRet);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		
+    }
+	EXEC SQL close GITLAB_PROGLIST;	
+	
+	sprintf(gszLogMsg, "[%s] Process_CheckIn End [%s][%s][%s] : [%s][%s][%s][%s][%d]", szPGMName,szSysCD, szUserID, szQryCD, pJobCD,pPrjName,pTarDir,pOutFile,retval);
+	eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);	
+	
+	return (retval);
+
+}
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

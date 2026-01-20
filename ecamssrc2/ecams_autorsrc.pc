@@ -1,0 +1,374 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_autorsrc.pc                            │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 형상관리의 자동신규 처리 프로그램            │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2013. 02. 25                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+typedef struct
+{
+	short len;
+	char  arr[100];
+} vr;
+
+/*---------------------------------------------------------------*/
+/*       Oracle Sql Bind 변수 DEFINE                             */
+/*---------------------------------------------------------------*/
+EXEC SQL BEGIN DECLARE SECTION;
+    EXEC SQL TYPE vr IS VARRAW(100);
+    vr my_vr;
+EXEC SQL END DECLARE SECTION;
+
+
+#define DEBUG 1
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+int 	Process_ResultMake	();
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath             [dfDir];
+char	szSaveRsrcName      [dfRsrcName];
+char	szPGMName           [dfRsrcName];
+char	szUserID              [dfEditor];
+char	szSysCD                [dfSysCD];
+char    szJobCD                [dfJobCD];
+char    szProgName          [dfRsrcName];
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			형상관리의 자동신규 처리   M A I N                   */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+int 	retval                          ;
+char	szRstFile           [dfFullPath];
+char	szRstCond            [dfRstCode];
+char	gszBinPath               [dfDir];
+int 	nInfo17                         ;
+int 	nInfo18                         ;
+int 	nInfo19                         ;
+int 	nRet                            ;
+char	szSysCmd            [dfFullPath];
+CMD_INFO	CmdInfo                     ;
+
+
+    if ( argc < 3 ) {
+        printf ("\nUsage : %s <시스템코드> <사용자ID> <GIT만 업무코드>  %d \n\n", argv[0], argc);
+        exit (1);
+	}
+
+	sprintf(szPGMName, "%s", argv[0]);
+	sprintf(szSysCD  , "%s", argv[1]);
+	sprintf(szUserID , "%s", argv[2]);
+	if (argc > 3) {
+		sprintf(szJobCD  , "%s", argv[3]);
+		if (argc == 5) sprintf(szProgName, "%s", argv[4]);
+	}
+	
+	nRet = Right_Char_Check(szPGMName, '/');
+	if (nRet > 0) {
+		sprintf(szPGMName, "%s", right_char(szPGMName, strlen(szPGMName) - nRet));
+	}
+
+	sprintf(szSysCmd, "procck4 ecams_autorsrc %s %s %s", szSysCD, szJobCD, szUserID);
+	retval = system (szSysCmd) / 256;
+	if (retval > 1) {
+		exit (9);
+	}
+	
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE) {
+		exit(1);
+	}
+
+	/*-----------------------------------------------------------*/
+    /*   Set Bin  Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("14", gszBinPath);
+	
+	/*-----------------------------------------------------------*/
+    /*   Bin Directory로 이동                                    */
+    /*-----------------------------------------------------------*/
+	chdir(gszBinPath);
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+
+	/*-----------------------------------------------------------*/
+	/*	차세대 자동신규 여부 조회                                */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  COUNT(*)
+		  INTO  :nInfo17
+		  FROM  CMM0030
+		 WHERE  CM_SYSCD = :szSysCD
+		   AND  SUBSTR(CM_SYSINFO, 17, 1) = '1';
+		   
+	if (sqlca.sqlcode != 0) {
+		nInfo17 = 0;
+	}
+
+	/*-----------------------------------------------------------*/
+	/*	인터넷뱅킹 자동신규 여부 조회                                */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  COUNT(*)
+		  INTO  :nInfo18
+		  FROM  CMM0030
+		 WHERE  CM_SYSCD = :szSysCD
+		   AND  SUBSTR(CM_SYSINFO, 18, 1) = '1';
+		   
+	if (sqlca.sqlcode != 0) {
+		nInfo18 = 0;
+	}
+
+
+	/*-----------------------------------------------------------*/
+	/*	gitlab 자동신규 여부 조회                                */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  COUNT(*)
+		  INTO  :nInfo19
+		  FROM  CMM0030
+		 WHERE  CM_SYSCD = :szSysCD
+		   AND  SUBSTR(CM_SYSINFO, 19, 1) = '1';
+		   
+	if (sqlca.sqlcode != 0) {
+		nInfo19 = 0;
+	}
+	
+	if (nInfo19 > 0) {
+		if (argc != 4 && argc != 5) {
+			printf ("\nUsage : %s <시스템코드> <사용자ID> <GIT만 업무코드>  \n\n", argv[0]);
+			exit (1);
+		}
+	}
+	/*-----------------------------------------------------------*/
+	/*	소켓 명령 변수 초기화                                    */
+	/*-----------------------------------------------------------*/
+	InitCmdInfo(&CmdInfo);
+	sprintf(CmdInfo.szAcptNo, "%-12s", "autorsrc");
+	sprintf(CmdInfo.szLogFile,"%sTransList.%s",gszLogPath,gszLogFile);
+	CmdInfo.nPort = dfeCAMSFepPort;
+
+	sprintf(szRstFile, "%s%s.txt", gszTempPath, szUserID);
+	remove (szRstFile);
+
+	/*-----------------------------------------------------------*/
+	/*	신규 대상 목록 작성                                      */
+	/*-----------------------------------------------------------*/
+	if (nInfo17 > 0) {
+		sprintf(gszLogMsg,"%s START [%s] [%s]", szPGMName, szSysCD, szUserID);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		
+		/*-------------------------------------------------------*/
+		/*	FEP 자동신규 대상 목록 작성                          */
+		/*-------------------------------------------------------*/
+		sprintf(szSysCmd, "ecams_autorsrc_sub %s %s FEP &", szSysCD, szUserID);
+		system (szSysCmd);
+		
+		/*-------------------------------------------------------*/
+		/*	EAI 자동신규 대상 목록 작성                          */
+		/*-------------------------------------------------------*/
+		sprintf(szSysCmd, "ecams_autorsrc_sub %s %s EAI &", szSysCD, szUserID);
+		system (szSysCmd);		
+
+		/*-------------------------------------------------------*/
+		/*	통합단말 자동신규 대상 목록 작성                     */
+		/*-------------------------------------------------------*/
+		sprintf(szSysCmd, "ecams_autorsrc_sub %s %s SCR &", szSysCD, szUserID);
+		system (szSysCmd);		
+
+		/*-------------------------------------------------------*/
+		/*	파라미터 자동신규 대상 목록 작성                     */
+		/*-------------------------------------------------------*/
+		sprintf(szSysCmd, "ecams_autorsrc_sub %s %s PARM &", szSysCD, szUserID);
+		system (szSysCmd);	
+
+		/*-------------------------------------------------------*/
+		/*	RSA 자동신규 대상 목록 작성                          */
+		/*-------------------------------------------------------*/
+		sprintf(szSysCmd, "ecams_autorsrc_sub %s %s RSA &", szSysCD, szUserID);
+		system (szSysCmd);	
+		
+		/*-------------------------------------------------------*/
+		/*	MCI 자동신규 대상 목록 작성                          */
+		/*-------------------------------------------------------*/
+		sprintf(szSysCmd, "ecams_autorsrc_sub %s %s MCI &", szSysCD, szUserID);
+		system (szSysCmd);
+		
+		sleep(2);
+		sprintf(szSysCmd, "procck3 ecams_autorsrc_sub %s %s", szSysCD, szUserID);
+		while (1) {
+			retval = system (szSysCmd) / 256;
+			if (retval == 0)	break;
+			sleep (1);
+		}
+	
+		/*-------------------------------------------------------*/
+		/*	자동신규 대상 결과 작성                              */
+		/*-------------------------------------------------------*/
+		Process_ResultMake(szUserID, "FEP");
+		Process_ResultMake(szUserID, "EAI");
+		Process_ResultMake(szUserID, "SCR");
+		Process_ResultMake(szUserID, "PARM");
+		Process_ResultMake(szUserID, "RSA");
+		Process_ResultMake(szUserID, "MCI");
+
+		sprintf(gszLogMsg,"%s END [%s] [%s]", szPGMName, szSysCD, szUserID);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+	}
+	
+	else
+	if (nInfo18 > 0) {
+		sprintf(gszLogMsg,"%s START [%s] [%s]", szPGMName, szSysCD, szUserID);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		
+		/*-------------------------------------------------------*/
+		/*	인터넷뱅킹 자동신규 대상 목록 작성                   */
+		/*-------------------------------------------------------*/
+		sprintf(szSysCmd, "ecams_autorsrc_sub %s %s IB &", szSysCD, szUserID);
+		system (szSysCmd);
+		
+		sleep(2);
+		sprintf(szSysCmd, "procck3 ecams_autorsrc_sub %s %s", szSysCD, szUserID);
+		while (1) {
+			retval = system (szSysCmd) / 256;
+			if (retval == 0)	break;
+			sleep (1);
+		}
+				
+		Process_ResultMake(szUserID, "IB");
+		
+		sprintf(gszLogMsg,"%s END [%s] [%s]", szPGMName, szSysCD, szUserID);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+	}
+
+	else
+	if (nInfo19 > 0) {
+		sprintf(gszLogMsg,"%s START [%s] [%s] [%s]", szPGMName, szSysCD, szJobCD, szUserID);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+		
+		/*-------------------------------------------------------*/
+		/*	인터넷뱅킹 자동신규 대상 목록 작성                       */
+		/*-------------------------------------------------------*/
+		if (strlen(szProgName)>0) sprintf(szSysCmd, "ecams_autorsrc_sub %s %s GIT %s %s &", szSysCD, szUserID, szJobCD,szProgName);
+		else sprintf(szSysCmd, "ecams_autorsrc_sub %s %s GIT %s &", szSysCD, szUserID, szJobCD);
+		system (szSysCmd);
+		
+		sleep(2);
+		sprintf(szSysCmd, "procck4 ecams_autorsrc_sub %s %s %s", szSysCD, szUserID, szJobCD);
+		while (1) {
+			retval = system (szSysCmd) / 256;
+			if (retval == 0)	break;
+			sleep (1);
+		}
+				
+		Process_ResultMake(szUserID, "GIT");
+		
+		sprintf(gszLogMsg,"%s END [%s] [%s]", szPGMName, szSysCD, szUserID);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+	}
+	else {
+		exit (1);
+	}
+			
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit(0);
+}
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_ResultMake                               */
+/*	Action    : 디렉토리정보 작성 및 목록파일 작성               */
+/*  Parameter : pUserID    : 사용자ID                            */
+/*              pRunCD     : 작업구분                            */
+/*	Return    : 오류건수                                         */
+/*---------------------------------------------------------------*/
+int 	Process_ResultMake	( char *pUserID
+							, char *pRunCD
+							)
+{
+char	szRstFile           [dfFullPath];
+char	szRstFile1          [dfFullPath];
+char	szDummy                   [2048];
+FILE	*RstPtr                         ;
+FILE	*SrcPtr                         ;
+
+	/*-----------------------------------------------------------*/
+	/*	신규 목록 파일 작성                                      */
+	/*-----------------------------------------------------------*/
+	sprintf(szRstFile , "%s%s.%s" , gszTempPath, pUserID, pRunCD);
+	sprintf(szRstFile1, "%s%s.txt", gszTempPath, pUserID);
+	
+	if (access(szRstFile, F_OK) != 0)	return(1);
+		
+    if ((SrcPtr = fopen(szRstFile, "r") ) == (FILE *) NULL) {
+    	fprintf(stderr, "File Open Error = [%s]\n", szRstFile);
+    	return (1);
+    }
+
+    if ((RstPtr = fopen(szRstFile1, "a+") ) == (FILE *) NULL) {
+    	fprintf(stderr, "File Open Error = [%s]\n", szRstFile1);
+    	return (2);
+    }
+
+	memset(szDummy, 0x00, sizeof(szDummy));
+	while (fgets(szDummy, 2048, SrcPtr) != (char *) NULL) {
+		fprintf(RstPtr, "%s", szDummy);
+	}
+	fclose (SrcPtr);
+	fclose (RstPtr);
+	fflush (RstPtr);
+	remove (szRstFile);
+}
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

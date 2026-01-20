@@ -1,0 +1,529 @@
+/*-----------------------------------------------------------------
+ ┌──────┬────────────────────────┐
+ │ 프로그램명 │ ecams_sendmsg.pc                               │
+ ├──────┼────────────────────────┤
+ │ 기      능 │ 결재관련 알림메세지 처리 MAIN                  │
+ ├──────┼────────────────────────┤
+ │ 작  성  일 │ 2011. 07. 08.                                  │
+ ├──────┼────────────────────────┤
+ │ 작  성  자 │ 최   병   남                                   │
+ └──────┴────────────────────────┘
+-----------------------------------------------------------------*/
+
+/*---------------------------------------------------------------*/
+/*		외부함수 include										 */
+/*---------------------------------------------------------------*/
+#define		dfMain	1
+
+#include 	<ecamsapi.h>
+#include 	<ecams_sendmsg.h>
+#include 	<ecams_util.h>
+
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+/*---------------------------------------------------------------*/
+/*		내부함수			                                     */
+/*---------------------------------------------------------------*/
+void 	OraDisconnect();
+
+
+/*---------------------------------------------------------------*/
+/*    User Work 변수                                             */
+/*---------------------------------------------------------------*/
+int		g_exit = 0                      ;
+char	gszDate                    [8+1];
+
+#define		DATA_ARRAY		5000
+#define 	_DEBUG_			1
+
+#define 	chNil       	'\0'
+#define 	chTab       	'\t'
+#define 	chLF        	'\n'
+#define 	chCR        	'\r'
+#define 	chSpace     	' '
+
+#ifndef TRUE
+#define TRUE    1
+#endif
+
+#ifndef FALSE
+#define FALSE   0
+#endif
+
+#define 	FreeStr(ptr)	free((void *) ptr)
+#define 	RTrim(psz)		_RTrim(psz, (char *)NULL)
+
+typedef struct _APPROVAL_DATA_ {
+	char	szDestIp         [DATA_ARRAY][  20+1];
+	char	szDocTitle       [DATA_ARRAY][ 200+1];
+	char	szDocMsg         [DATA_ARRAY][1000+1];
+	char	szSendDate       [DATA_ARRAY][  14+1];
+	char	szConUId	     [DATA_ARRAY][  10+1];
+	char	szConUsr	     [DATA_ARRAY][  20+1];
+	char	szSendUsr	     [DATA_ARRAY][  20+1];
+	char	szLinkUrl	     [DATA_ARRAY][ 200+1];
+	char	szAcptNo	     [DATA_ARRAY][  12+1];
+} APPROVAL_DATA;
+
+
+void
+Sleep (int millisec) {
+	usleep(millisec * 100);
+}
+
+
+/*---------------------------------------------------------------*/
+/*    User Work 변수                                             */
+/*---------------------------------------------------------------*/
+int     cSockId    ;                  /* Connect Socket ID       */
+int  	gRcvFd     ;                  /* 수신용 File Pointer     */
+int  	gSndFd     ;                  /* 송신용 File Pointer     */
+int  	gProcStep  ;                  /* 송신/수신 상태          */
+int  	gProcWork  ;                  /* 송신/수신 여부          */
+int  	gFileOffset;                  /* 파일 송신 OffSet        */
+char    gJobGub    [2]             ;  /* 처리구분                */
+char    systime  [16], sysdate [16];  /* 시스템일자, 시간        */
+static
+char    dummy    [1024];              /* Read Buffer             */
+static
+char    dummy1   [1024];              /* Read Buffer             */
+int     nRet1          ;              /* Char Find Work          */
+int     CurrCnt        ;              /* Source Line Count       */
+
+
+
+char *
+_strncpy(char * pszBuf, const char * pszSrc, size_t cbCopy)
+{
+    char * pszBufBegin;
+
+    if (! pszBuf)
+        return (char *)NULL;
+
+    if (pszSrc == (char *)NULL || pszSrc == pszBuf) {
+        *(pszBuf + cbCopy) = chNil;
+        return pszBuf;
+    }
+
+    pszBufBegin = pszBuf;
+    while (cbCopy && *pszSrc) {
+        *pszBuf++ = *pszSrc++;
+        cbCopy--;
+    }
+    *pszBuf = chNil;
+    return pszBufBegin;
+}
+
+
+char *
+_RTrim(char * pszBuf, const char * pszSrc)
+{
+	int				bDup;
+    const char		*pszSrcBegin;
+
+	bDup = FALSE;
+
+    if (! pszBuf)
+        return (char *)NULL;
+
+    if (pszSrc == (char *)NULL || pszSrc == pszBuf) {
+        pszSrc = strdup(pszBuf);
+        bDup = TRUE;
+    }
+
+    pszSrcBegin = pszSrc;
+    pszSrc += strlen(pszSrc) - 1;
+    while (pszSrc >= pszSrcBegin && (*pszSrc == ' ' || *pszSrc == chTab))
+        pszSrc--;
+
+    _strncpy(pszBuf, pszSrcBegin, pszSrc - pszSrcBegin + 1);
+
+    if (bDup)
+        FreeStr(pszSrcBegin);
+
+    return pszBuf;
+}
+
+
+void
+OraDisconnect() {
+
+	EXEC SQL COMMIT WORK RELEASE;
+}
+
+int
+GetApprovalData(APPROVAL_DATA *pstAppData, int *piDataCnt, int iTableGb) {
+
+	if (iTableGb == 1) {
+		EXEC SQL
+		DELETE CMR9920
+		 WHERE CR_SENDDATE IS NULL
+		   AND CR_MAKEDATE<to_char(SYSDATE, 'YYYYMMDD');
+		EXEC SQL COMMIT;
+
+		EXEC SQL
+		SELECT CM_IPADDRESS,CR_TITLE,CR_SGNMSG,CR_SENDDATE,CR_CONUSR,RECVUSER,REQUSER,LINKURL,ACPTNO
+		  INTO :pstAppData
+		  FROM (
+				SELECT  RTRIM(C.CM_IPADDRESS) CM_IPADDRESS
+					   ,RTRIM(A.CR_TITLE) CR_TITLE
+					   ,RTRIM(A.CR_SGNMSG) CR_SGNMSG
+					   ,TO_CHAR(A.CR_SENDDATE,'YYYYMMDDHH24MISS') CR_SENDDATE
+					   ,RTRIM(A.CR_CONUSR) CR_CONUSR
+					   ,RTRIM(C.CM_USERNAME) RECVUSER
+					   ,RTRIM(D.CM_USERNAME) REQUSER
+					   ,RTRIM(A.CR_LINKURL) LINKURL
+					   ,B.CR_ACPTNO ACPTNO
+				  FROM  CMR9910 A
+				       ,CMM0040 C
+				       ,CMM0040 D
+				       ,CMR1000 B
+				 WHERE  A.CR_STATUS     ='0'
+				   AND	A.CR_CONUSR		= C.CM_USERID
+				   AND  C.CM_IPADDRESS IS NOT NULL
+				   AND  D.CM_USERID		= B.CR_EDITOR
+				   AND  A.CR_ACPTNO     = B.CR_ACPTNO
+				   AND  A.CR_ACPTNO     <> '999999999999'
+				 UNION
+				SELECT  RTRIM(C.CM_IPADDRESS) CM_IPADDRESS
+					   ,RTRIM(A.CR_TITLE) CR_TITLE
+					   ,RTRIM(A.CR_SGNMSG) CR_SGNMSG
+					   ,TO_CHAR(A.CR_SENDDATE,'YYYYMMDDHH24MISS') CR_SENDDATE
+					   ,RTRIM(A.CR_CONUSR) CR_CONUSR
+					   ,RTRIM(C.CM_USERNAME) RECVUSER
+					   ,RTRIM(D.CM_USERNAME) REQUSER
+					   ,RTRIM(A.CR_LINKURL) LINKURL
+					   ,A.CR_ACPTNO ACPTNO
+				  FROM  CMR9910 A
+				       ,CMM0040 C
+				       ,CMM0040 D
+				 WHERE  A.CR_STATUS     ='0'
+				   AND	A.CR_CONUSR		= C.CM_USERID
+				   AND  A.CR_SENDUSR    = D.CM_USERID
+				   AND  C.CM_IPADDRESS IS NOT NULL
+				   AND  A.CR_ACPTNO     = '999999999999'
+				 ORDER BY ACPTNO DESC);
+
+		*piDataCnt = sqlca.sqlerrd[2];
+
+		if (sqlca.sqlcode == 1403)
+			return 0;
+		else
+		if (sqlca.sqlcode != 0) {
+			printf("GetApprovalData-1: SELECT ERROR!! (%s)\n", sqlca.sqlerrm.sqlerrmc);
+			return -1;
+		}
+	}
+	else
+	if (iTableGb == 2) {
+		EXEC SQL
+		delete CMR9920
+		 WHERE CR_SENDDATE IS NULL
+		   AND CR_MAKEDATE<to_char(SYSDATE, 'YYYYMMDD');
+		EXEC SQL COMMIT;
+
+		EXEC SQL
+		SELECT  /*+ leading(a) */
+			   RTRIM(C.CM_IPADDRESS)
+			   ,RTRIM(A.CR_TITLE)
+			   ,RTRIM(A.CR_SGNMSG)
+			   ,TO_CHAR(A.CR_SENDDATE,'YYYYMMDDHH24MISS')
+			   ,RTRIM(A.CR_CONUSR)
+			   ,RTRIM(D.CM_USERNAME)
+			   ,RTRIM(C.CM_USERNAME)
+			   ,RTRIM(A.CR_LINKURL)
+			   ,A.CR_ACPTNO
+		  INTO	:pstAppData
+		  FROM  CMR9910 A
+		       ,CMM0040 C
+		       ,CMM0040 D
+		 WHERE  A.CR_STATUS     ='0'
+		   AND	A.CR_CONUSR		= C.CM_USERID
+		   AND  C.CM_IPADDRESS IS NOT NULL
+		   AND  D.CM_USERID		= A.CR_SENDUSR
+		   AND  A.CR_ACPTNO     = '999999999999'
+		 ORDER BY A.CR_SENDDATE;
+
+		 *piDataCnt = sqlca.sqlerrd[2];
+
+		if (sqlca.sqlcode == 1403)
+			return 0;
+		else
+		if (sqlca.sqlcode != 0) {
+			printf("GetApprovalData-2: SELECT ERROR!! (%s)\n", sqlca.sqlerrm.sqlerrmc);
+			return -1;
+		}
+
+	}
+	return 0;
+}
+
+int
+SetApprovalData(APPROVAL_DATA *pstAppData, int iDataCnt) {
+
+static int		iLoop;
+char	szIPAddr     [256];
+
+
+	for (iLoop=0; iLoop<iDataCnt; iLoop++) {
+
+		RTrim(pstAppData->szDestIp	[iLoop]);
+		RTrim(pstAppData->szDocTitle[iLoop]);
+		RTrim(pstAppData->szDocMsg[iLoop]);
+		RTrim(pstAppData->szSendDate[iLoop]);
+		RTrim(pstAppData->szConUId[iLoop]);
+		RTrim(pstAppData->szConUsr[iLoop]);
+		RTrim(pstAppData->szSendUsr[iLoop]);
+		RTrim(pstAppData->szLinkUrl[iLoop]);
+		RTrim(pstAppData->szAcptNo  [iLoop]);
+
+		memset(szIPAddr, 0x00, sizeof(szIPAddr));
+		sprintf(szIPAddr, "%s", pstAppData->szDestIp[iLoop]);
+
+		EXEC SQL
+		INSERT INTO CMR9920
+				(CR_DESTIP
+				,CR_MAKEDATE
+				,CR_MAKESEQ
+				,CR_MAKETIME
+				,CR_DOCTITLE
+				,CR_DOCMSG
+				,CR_SENDUSR
+				,CR_RCVUSR
+				,CR_LINKURL
+				,CR_MAILFLAG
+				,CR_ACPTNO)
+		(SELECT :pstAppData->szDestIp	[iLoop],
+			    TO_CHAR(SYSDATE,'YYYYMMDD')
+			    ,NVL(MAX(CR_MAKESEQ),0)+1
+			    ,SYSDATE
+				,:pstAppData->szDocTitle[iLoop]
+				,:pstAppData->szDocMsg[iLoop]
+			    ,:pstAppData->szSendUsr[iLoop]
+			    ,:pstAppData->szConUsr[iLoop]
+			    ,:pstAppData->szLinkUrl[iLoop]
+			    ,0
+				,:pstAppData->szAcptNo	[iLoop]
+		    FROM CMR9920
+		   WHERE CR_DESTIP = :pstAppData->szDestIp	[iLoop]
+		   	 AND CR_MAKEDATE = to_char(SYSDATE,'yyyymmdd'));
+
+			if (sqlca.sqlcode == -1)
+				continue;
+			else
+			if (sqlca.sqlcode != 0) {
+				printf("SetApprovalData: INSERT ERROR!! (%s)\n", sqlca.sqlerrm.sqlerrmc);
+				continue;
+			/*	return -1; */
+			}
+
+		EXEC SQL
+			UPDATE  CMR9910
+			   SET  CR_STATUS='1'
+			 WHERE  CR_CONUSR=:pstAppData->szConUId[iLoop]
+			   AND  TO_CHAR(CR_SENDDATE,'YYYYMMDDHH24MISS') = :pstAppData->szSendDate[iLoop];
+
+		if (sqlca.sqlcode != 0) {
+			printf("SetApprovalData: UPDATE ERROR!! (%s)\n", sqlca.sqlerrm.sqlerrmc);
+			printf("SetApprovalData: (%s)(%s)\n", pstAppData->szConUId[iLoop], pstAppData->szSendDate[iLoop]);
+			continue;
+	/*		return -1;   */
+		}
+
+		EXEC SQL COMMIT;
+	}
+	EXEC SQL COMMIT;
+	return 0;
+}
+
+int
+UpdApprovalData(char *pszDestIp, char *pszSendDate, int pmakeSeq) {
+
+	EXEC SQL
+	UPDATE	CMR9920
+	   SET	CR_SENDDATE	= :gszDate
+	 WHERE	CR_DESTIP	= :pszDestIp
+	   AND  CR_MAKEDATE = :pszSendDate
+	   AND  CR_MAKESEQ  = :pmakeSeq;
+
+	if (sqlca.sqlcode != 0) {
+		printf("UpdApprovalData: UPDATE ERROR!! (%s)\n", sqlca.sqlerrm.sqlerrmc);
+		printf("UpdApprovalData: (%s)(%s)(%d)\n", pszDestIp,pszSendDate,pmakeSeq);
+		return -1;
+	}
+
+	EXEC SQL COMMIT;
+	return 0;
+}
+
+int
+DelApprovalData() {
+
+	EXEC SQL
+	DELETE	CMR9920
+	 WHERE	CR_SENDDATE	< :gszDate;
+
+	if (sqlca.sqlcode != 1403  &&  sqlca.sqlcode != 0) {
+		printf("DelApprovalData: DELETE ERROR!! (%s)\n", sqlca.sqlerrm.sqlerrmc);
+		return -1;
+	}
+
+	EXEC SQL COMMIT;
+	return 0;
+}
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			형상관리 결재관련 메세지 전송처리 MAIN               */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char *argv[]) {
+
+int		sd                              ;
+int		iSubLoop                        ;
+int		iLoop                           ;
+int		iDataCnt = 0                    ;
+int		iSendCnt = 0                    ;
+int		iErrorCode                      ;
+int		iPort                           ;
+char	szDestIp               [dfSvrIP];
+char	szMakedt                   [8+1];
+char	syscmd                    [1000];
+char	readps                    [1000];
+int   	pmakeSeq                        ;
+int   	pRet1,pRet2,pRet3               ;
+int   	pschk=0                         ;
+int 	ncnt                            ;
+int 	makeSeq                         ;
+APPROVAL_DATA	stData                  ;
+CMD_INFO		CMDINFO                 ;
+FILE	*fpt1                           ;
+
+
+	/*-----------------------------------------------------------*/
+	/*	소켓 명령 변수 초기화                                    */
+	/*-----------------------------------------------------------*/
+	InitCmdInfo(&CMDINFO);
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+
+	DefineSignal();
+
+	EXEC SQL
+		SELECT	TO_CHAR(SYSDATE, 'YYYYMMDD')
+		  INTO	:gszDate
+		  FROM	DUAL;
+
+	if (sqlca.sqlcode != 0) {
+		printf("ORACLE SELECT ERROR!! (%s)\n", sqlca.sqlerrm.sqlerrmc);
+		OraDisconnect();
+		return -1;
+	}
+
+	while (!g_exit) {
+		memset(&stData , 0x00, sizeof(APPROVAL_DATA));
+
+		/*-------------------------------------------------------*/
+		/*  1) 현재 결재대상인 신청건을 GET                      */
+		/*-------------------------------------------------------*/
+		if (GetApprovalData(&stData, &iDataCnt, 1) != 0) {
+			OraDisconnect();
+			g_exit = 1;
+			return -1;
+		}
+
+		/*-------------------------------------------------------*/
+		/*  2) 결재대상인 신청건을 송신대상 테이블에 INSERT      */
+		/*-------------------------------------------------------*/
+		if (SetApprovalData(&stData, iDataCnt) != 0) {
+			OraDisconnect();
+			g_exit = 1;
+			return -1;
+		}
+		memset(&stData , 0x00, sizeof(APPROVAL_DATA));
+
+
+		/*-------------------------------------------------------*/
+		/*  3) 데이터 송신                                       */
+		/*-------------------------------------------------------*/
+		EXEC SQL DECLARE CMR9920_cursor cursor for
+			SELECT	CR_DESTIP
+			      , CR_MAKEDATE
+			      , CR_MAKESEQ
+		      FROM	CMR9920
+			 WHERE	CR_SENDDATE IS NULL
+			   AND  NVL(CR_SENDCNT, 0) < 5
+			 ORDER  BY CR_MAKETIME DESC;
+
+		EXEC SQL open CMR9920_cursor;
+		while(1) {
+			do {
+		  		ncnt = system("ps -ef | grep ecams_sendmsg_sub | grep -v grep >/dev/null") /256;
+		  	} while(ncnt >= 10);
+
+
+			memset(szDestIp,0x00,sizeof(szDestIp));
+			memset(szMakedt,0x00,sizeof(szMakedt));
+
+		 	EXEC SQL fetch CMR9920_cursor
+   					INTO  :szDestIp
+   						, :szMakedt
+   						, :makeSeq;
+
+			if (sqlca.sqlcode == 1403) break;
+
+			if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+				fprintf (stderr, "SQL ERROR  1 %s\n", sqlca.sqlerrm.sqlerrmc);
+				exit (1);
+			}
+
+			NotUseDataTruncate (szDestIp,0x20);
+			NotUseDataTruncate (szMakedt,0x20 );
+
+			sprintf(syscmd,"procck4 ecams_sendmsg_sub %s %s %d", szDestIp, szMakedt, makeSeq);
+			ncnt = system(syscmd) /256;
+			if (ncnt >= 1) {
+				continue;
+			}
+
+			sprintf(syscmd,"ecams_sendmsg_sub %s %s %d &",szDestIp,szMakedt,makeSeq);
+			fprintf(stdout, syscmd);
+			system(syscmd);
+
+			EXEC SQL
+				UPDATE	CMR9920
+			       SET  CR_SENDCNT = (NVL(CR_SENDCNT,0)+1)
+				 WHERE  CR_DESTIP	= :szDestIp
+				   AND  CR_MAKEDATE = :szMakedt
+				   AND  CR_MAKESEQ  = :makeSeq;
+
+			if (sqlca.sqlcode != 0) {
+ 				printf("UPDATE SENDCOUNT ERROR!! (%s)\n", sqlca.sqlerrm.sqlerrmc);
+				printf("UPDATE SENDCOUNT ERROR!! (%s)(%s)(%d)\n", szDestIp,szMakedt,makeSeq);
+				return -1;
+			}
+			EXEC SQL COMMIT;
+		}
+
+    	EXEC SQL close CMR9920_cursor ;
+
+		/*-------------------------------------------------------*/
+		/*  4) 송신완료 신청건을 DELETE                          */
+		/*-------------------------------------------------------*/
+		Sleep(1000*10); 				   /* 매 1분마다 재 실행 */
+	}
+	OraDisconnect();
+	exit (0);
+}
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

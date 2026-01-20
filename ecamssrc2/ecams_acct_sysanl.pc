@@ -1,0 +1,180 @@
+/*-----------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_acct_sysanl.pc                         │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 영향분석 대상자원에 대해 영향도 통보처리     │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2011. 07. 19                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include 	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+#define DEBUG 1
+void	wait_bgJob	(char *pAcptNo);
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_SYSANL                                   */
+/*	Action    : 영향분석대상 통보처리                            */
+/*  Parameter : pAcptNo      : 신청번호                          */
+/*              pPrcSys      : 처리단계                          */
+/*              pRstCond : 처리결과                              */
+/*  Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+void 	Process_SYSANL	( char *pAcptNo
+						, char *pPrcSys
+						, char *pRstCond
+						)
+{
+char	szSysCD                [dfSysCD];
+int		szSerNo                         ;
+char	szRsrcCD              [dfRsrcCD];
+char	szDsnCD                [dfDsnCD];
+char	szRsrcName          [dfRsrcName];
+char	szEditor              [dfEditor];
+char	szUserName                  [40];
+char	szCommand                  [512];
+int		szSysStep                       ;
+char	szPrcSys              [dfPrcSys];
+int		nErrCnt                         ;
+int		nRet                            ;
+char	szPrjNo                [dfPrjNo];
+char	szPrjNm                    [512];
+char	szPlanDay                  [8+1];
+char	szNotify		           [1+1];
+
+
+	if (cmp_mid_char(pAcptNo, 5, 2, "01") == 0) {
+		strcpy(szPrcSys,"SYSDN");
+	}
+	else {
+		strcpy(szPrcSys,"SYSDNC");
+	}
+
+	szSysStep = 0;
+
+	memset(szPrjNo, 0x00, sizeof(szPrjNo));
+	memset(szPrjNm, 0x00, sizeof(szPrjNm));
+
+	/*-----------------------------------------------------------*/
+	/*	영향분석 통보 대상 목록 작성                             */
+	/*-----------------------------------------------------------*/
+	EXEC SQL  declare SYSANL_RSRC0 cursor for
+		SELECT  DISTINCT
+		        b.CR_SYSCD
+		      , a.CR_SERNO
+		      , b.CR_DSNCD
+		      , b.CR_RSRCCD
+		      , b.CR_RSRCNAME
+		      , d.CR_EDITOR
+		      , TO_CHAR(d.CR_ACPTDATE, 'YYYYMMDD')
+		      , e.CM_USERNAME
+		      , NVL(a.CR_ANALYN, 'Y')
+          FROM  CMR1010 a
+              , CMM0036 c
+              , CMR1000 d
+              , CMM0040 e
+              , CMR0020 b
+         WHERE  a.CR_ACPTNO   = :pAcptNo
+		   AND  b.CR_SYSCD	  = c.CM_SYSCD
+		   AND  b.CR_RSRCCD	  = c.CM_RSRCCD
+		   AND  SUBSTR(C.CM_INFO, 34, 1) = '1'
+		   AND  a.CR_ACPTNO   = d.CR_ACPTNO
+		   AND  d.CR_EDITOR	  = e.CM_USERID
+           AND  a.CR_ITEMID   = b.CR_BASEITEM;
+
+	EXEC SQL open  SYSANL_RSRC0;
+    while (1) {
+		EXEC SQL fetch SYSANL_RSRC0
+			INTO  :szSysCD
+				, :szSerNo
+				, :szDsnCD
+				, :szRsrcCD
+				, :szRsrcName
+				, :szEditor
+				, :szPlanDay
+				, :szUserName
+				, :szNotify;
+
+		if (sqlca.sqlcode == 1403)	break;
+
+		NotUseDataTruncate (szSysCD   , 0x20);
+		NotUseDataTruncate (szRsrcCD  , 0x20);
+		NotUseDataTruncate (szDsnCD   , 0x20);
+		NotUseDataTruncate (szRsrcName, 0x20);
+		NotUseDataTruncate (szEditor  , 0x20);
+		NotUseDataTruncate (szUserName, 0x20);
+		NotUseDataTruncate (szPrjNo   , 0x20);
+		NotUseDataTruncate (szPrjNm   , 0x20);
+		NotUseDataTruncate (szNotify  , 0x20);
+
+		sprintf(szPlanDay,"%s", trunc_char(szPlanDay));
+
+		while (1) {
+			nRet = 0;
+			sprintf (szCommand, "procck1 %s %s", "ecams_prcanal", pAcptNo);
+			nRet = system(szCommand) / 256;
+			if (nRet < 10) break;
+
+			sleep(2);
+		}
+		sprintf(szCommand,"ecams_prcanal '%s' '%s' '%d' '%s' '%s' '%s' '%s' '%s' '%s' '%d' '%s' '%s' '%s' %s &"
+						 , pPrcSys, pAcptNo, szSerNo, szSysCD, szDsnCD, szRsrcCD, szRsrcName, szEditor, szUserName, szSysStep, szPrjNo, szPrjNm, szPlanDay, szNotify);
+
+		sprintf(gszLogMsg,"SYSANL [%s]", szCommand);
+		eCAMS_Log(gszLogPath, gszLogFile, gszLogMsg);
+
+		system(szCommand);
+	}
+    EXEC SQL CLOSE SYSANL_RSRC0;
+
+	/*-----------------------------------------------------------*/
+	/*	프로세스 처리 완료 체크                                  */
+	/*-----------------------------------------------------------*/
+	wait_bgJob(pAcptNo);
+
+	strcpy(pRstCond,"0000");
+
+	return;
+}
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : wait_bgJob                                       */
+/*	Action    : 프로세스 처리완료 체크                           */
+/*  Parameter : pAcptNo      : 신청번호                          */
+/*  Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+void	wait_bgJob	( char *pAcptNo
+					)
+{
+char    SysCmd                     [512];
+int		retval                          ;
+
+	retval = -1;
+
+	do {
+		sprintf (SysCmd, "procck2 %s %s", "ecams_prcanal", pAcptNo);
+		retval = system (SysCmd) / 256;
+		sleep(1);
+	} while(retval > 0);
+
+}
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

@@ -1,0 +1,212 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_verchk.pc                              │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ eCAMS 프로그램의 버전정보 체크               │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2013. 01. 14                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+typedef struct
+{
+	short len;
+	char  arr[100];
+} vr;
+
+/*---------------------------------------------------------------*/
+/*       Oracle Sql Bind 변수 DEFINE                             */
+/*---------------------------------------------------------------*/
+EXEC SQL BEGIN DECLARE SECTION;
+    EXEC SQL TYPE vr IS VARRAW(100);
+    vr my_vr;
+EXEC SQL END DECLARE SECTION;
+
+
+#define DEBUG 1
+
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+int 	Process_verchk		();
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath             [dfDir];
+
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			신청자원의 처리   M A I N                            */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+int 	retval                          ;
+int		nPid                            ;
+
+
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+
+	/*-----------------------------------------------------------*/
+	/*	ResultFile Dir 체크                                      */
+	/*-----------------------------------------------------------*/
+	SetTempDir("11", gszRsultPath);
+	Local_Dir_Make(gszRsultPath );
+
+	/*-----------------------------------------------------------*/
+	/*	신청 구분별 처리					                     */
+	/*-----------------------------------------------------------*/
+	retval = Process_verchk();
+
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit(retval);
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_verchk                                   */
+/*	Action    : 처리 단계별 처리 Function Call                   */
+/*  Parameter : NONE                                             */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+int 	Process_verchk	( 
+						)
+{
+char	szSYSCD                [dfSysCD];
+char	szDSNCD                [dfDsnCD];
+char	szRSRCNAME          [dfRsrcName];
+char	szITEMID              [dfItemID];
+int 	szLSTVER                        ;
+int 	nErrCnt                         ;
+int 	nVer                            ;
+	
+
+	EXEC SQL DECLARE Rsrc_List CURSOR FOR
+		SELECT  CR_SYSCD
+		      , CR_DSNCD
+		      , CR_RSRCNAME
+		      , CR_ITEMID
+		      , CR_LSTVER
+		  FROM  CMR0020 A
+		      , CMM0036 B
+		 WHERE  CR_SYSCD = '01200'
+		   AND  CR_BASEITEM IS NOT NULL
+		   AND  CR_SYSCD = CM_SYSCD
+		   AND  CR_RSRCCD = CM_RSRCCD
+		   AND  SUBSTR(CM_INFO, 58, 1) = '1';
+	
+	nErrCnt = 0;
+	EXEC SQL open  Rsrc_List;
+    while (1) {
+		EXEC SQL fetch Rsrc_List
+			INTO  :szSYSCD   
+			    , :szDSNCD   
+			    , :szRSRCNAME
+			    , :szITEMID  
+			    , :szLSTVER ;
+
+		if (sqlca.sqlcode == 1403)	break;
+
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+			break;
+		}
+		
+		NotUseDataTruncate(szSYSCD   , 0x20);
+		NotUseDataTruncate(szDSNCD   , 0x20);
+		NotUseDataTruncate(szRSRCNAME, 0x20);		
+		NotUseDataTruncate(szITEMID  , 0x20);
+		
+		nVer = 0;
+		
+		
+		EXEC SQL DECLARE Rsrc_List CURSOR FOR
+			SELECT  CR_SYSCD
+			      , CR_DSNCD
+			      , CR_RSRCNAME
+			      , CR_ITEMID
+			      , CR_LSTVER
+			  FROM  CMR0020 A
+			      , CMM0036 B
+			 WHERE  CR_SYSCD = '01200'
+			   AND  CR_BASEITEM IS NOT NULL
+			   AND  CR_SYSCD = CM_SYSCD
+			   AND  CR_RSRCCD = CM_RSRCCD
+			   AND  SUBSTR(CM_INFO, 58, 1) = '1';
+		
+		nErrCnt = 0;
+		EXEC SQL open  RsrcVer_List;
+	    while (1) {
+			EXEC SQL fetch RsrcVer_List
+				INTO  :szSYSCD   
+				    , :szDSNCD   
+				    , :szRSRCNAME
+				    , :szITEMID  
+				    , :szLSTVER ;
+	
+			if (sqlca.sqlcode == 1403)	break;
+	
+			if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+				break;
+			}
+			
+			
+		}
+		EXEC SQL close RsrcVer_List;
+		
+	}
+	EXEC SQL close Rsrc_List;
+	
+	return (nErrCnt);
+	
+}
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

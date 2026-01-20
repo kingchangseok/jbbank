@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="60" height="60" viewBox="0 0 60 60">
+    <defs>
+        <filter id="prefix__a" width="115.1%" height="116.5%" x="-7.5%" y="-7.2%" filterUnits="objectBoundingBox">
+            <feOffset dy="2" in="SourceAlpha" result="shadowOffsetOuter1"/>
+            <feGaussianBlur in="shadowOffsetOuter1" result="shadowBlurOuter1" stdDeviation="5"/>
+            <feComposite in="shadowBlurOuter1" in2="SourceAlpha" operator="out" result="shadowBlurOuter1"/>
+            <feColorMatrix in="shadowBlurOuter1" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.15 0"/>
+        </filter>
+        <rect id="prefix__b" width="212" height="194" x="410" y="101" rx="5"/>
+    </defs>
+    <g fill="none" fill-rule="evenodd">
+        <path fill="#FFF" d="M0 0H1920V1080H0z" transform="translate(-475 -129)"/>
+        <path fill="#F8F8F8" d="M1 75H1921V340H1z" transform="translate(-475 -129)"/>
+        <g fill-rule="nonzero" transform="translate(-475 -129)">
+            <use fill="#000" filter="url(#prefix__a)" xlink:href="#prefix__b"/>
+            <rect width="211" height="193" x="410.5" y="101.5" fill="#FFF" fill-rule="evenodd" stroke="#DDD" stroke-linejoin="square" rx="5"/>
+        </g>
+    </g>
+</svg>

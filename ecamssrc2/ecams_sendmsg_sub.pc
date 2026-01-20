@@ -1,0 +1,209 @@
+/*-----------------------------------------------------------------
+ ┌──────┬────────────────────────┐
+ │ 프로그램명 │ ecams_sendmsg_sub.pc                           │
+ ├──────┼────────────────────────┤
+ │ 기      능 │ 결재관련 알림메세지 전송 건별 처리             │
+ ├──────┼────────────────────────┤
+ │ 작  성  일 │ 2011. 07. 08.                                  │
+ ├──────┼────────────────────────┤
+ │ 작  성  자 │ 최   병   남                                   │
+ └──────┴────────────────────────┘
+-----------------------------------------------------------------*/
+
+/*---------------------------------------------------------------*/
+/*		외부함수 include										 */
+/*---------------------------------------------------------------*/
+#define		dfMain	1
+
+#include 	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+
+/*---------------------------------------------------------------*/
+/*		내부함수			                                     */
+/*---------------------------------------------------------------*/
+
+
+/*---------------------------------------------------------------*/
+/*    User Work 변수                                             */
+/*---------------------------------------------------------------*/
+char	gszDate[8+1];
+
+
+/*---------------------------------------------------------------*/
+/*       Oracle Sql Bind 변수 DEFINE                             */
+/*---------------------------------------------------------------*/
+EXEC SQL BEGIN DECLARE SECTION;
+	char     gConnStr    [50];
+EXEC SQL END DECLARE SECTION;
+
+
+
+int
+UpdApprovalData(char *pszDestIp, char *pszSendDate, int pmakeSeq) {
+
+	EXEC SQL
+		UPDATE	CMR9920
+		   SET	CR_SENDDATE	= TO_CHAR(SYSDATE,'YYYYMMDD')
+		 WHERE	CR_DESTIP	= :pszDestIp
+		   AND  CR_MAKEDATE = :pszSendDate
+		   AND  CR_MAKESEQ  = :pmakeSeq;
+
+	if (sqlca.sqlcode != 0) {
+		printf("UpdApprovalData: UPDATE ERROR!! (%s)\n", sqlca.sqlerrm.sqlerrmc);
+		printf("UpdApprovalData: (%s)(%s)(%d)\n", pszDestIp,pszSendDate, pmakeSeq);
+		EXEC SQL ROLLBACK;
+		return -1;
+	}
+
+	EXEC SQL COMMIT;
+	return 0;
+}
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*		형상관리 결재관련 메세지전송 건별 처리  MAIN             */
+/*                                                               */
+/*****************************************************************/
+int  main(int argc, char **argv, char **envp)
+{
+int			iPort;
+char		szAcptNo	[12+1];
+char		szDestIp	[16+1];
+char		szMakedt	[14+1];
+char		szDocTitle [200+1];
+char		szDocMsg   [1000+1];
+char		szSendData	[2000];
+char		szSendUsr	[20+1];
+char		szRcvUsr	[20+1];
+char		szLinkUrl	[200+1];
+char		szSendDate	[15];
+int			nRet;
+char		szNotiCD[2];
+char		*repptr;
+char		szUsrNM[512];
+int         makeSeq;
+
+	CMD_INFO CMDINFO;
+
+	InitCmdInfo(&CMDINFO);
+
+	if (argc < 4) {
+        printf ("USAGE : %s <IP> <ACPTNO> <Makedt>", argv[0]);
+        exit (1);
+	}
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+
+
+	strcpy(szDestIp, argv[1]);
+	strcpy(szMakedt, argv[2]);
+	iPort = dfeCAMSConfPort;
+	makeSeq = atoi(argv[3]);
+
+	NotUseDataTruncate(szDestIp, 0x00);
+	NotUseDataTruncate(szMakedt, 0x00);
+
+
+	memset(szDocTitle, 0x00, sizeof(szDocTitle));
+	memset(szDocMsg  , 0x00, sizeof(szDocMsg  ));
+	memset(szSendData, 0x00, sizeof(szSendData));
+	memset(szSendUsr , 0x00, sizeof(szSendUsr ));
+	memset(szRcvUsr  , 0x00, sizeof(szRcvUsr  ));
+	memset(szLinkUrl , 0x00, sizeof(szLinkUrl ));
+
+
+    /*-----------------------------------------------------------*/
+    /*   전송 메시지 조회                                        */
+    /*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT	CR_DOCTITLE
+			  , CR_DOCMSG
+			  , CR_SENDUSR
+			  , CR_RCVUSR
+			  , CR_LINKURL
+			  , TO_CHAR(SYSDATE,'YYYYMMDDHH24MISS')
+		  INTO  :szDocTitle
+		  	  , :szDocMsg
+		  	  , :szSendUsr
+		  	  , :szRcvUsr
+		  	  , :szLinkUrl
+		  	  , :szSendDate
+		  FROM	CMR9920
+		 WHERE	CR_SENDDATE IS NULL
+		   AND  CR_DESTIP = :szDestIp
+		   AND  CR_MAKEDATE = :szMakedt
+		   AND  CR_MAKESEQ  = :makeSeq
+		 ORDER  BY CR_MAKETIME DESC;
+
+	if (sqlca.sqlcode == 1403)
+		return 0;
+
+	else
+	if (sqlca.sqlcode != 0) {
+		printf("Get EmpNm,DocTitle:[%s][%s][%d] SELECT ERROR!! (%s)\n",szDestIp,szMakedt,makeSeq, sqlca.sqlerrm.sqlerrmc);
+		return -1;
+	}
+
+	sprintf(szLinkUrl  , "%s", (char *)trunc_char(szLinkUrl ));
+	sprintf(szDocMsg   , "%s", (char *)trunc_char(szDocMsg  ));
+	sprintf(szDocTitle , "%s", (char *)trunc_char(szDocTitle));
+	sprintf(szRcvUsr   , "%s", (char *)trunc_char(szRcvUsr  ));
+	sprintf(szSendUsr  , "%s", (char *)trunc_char(szSendUsr ));
+
+	EXEC SQL
+		SELECT NVL(CM_NOTICD,'1')
+		INTO :szNotiCD
+		FROM CMM0040
+		WHERE CM_USERID = :szRcvUsr;
+
+	if (sqlca.sqlcode != 0){
+		strcpy(szNotiCD, "1");
+	}
+	NotUseDataTruncate (szNotiCD,0x20);
+
+	sprintf(szSendData, "%s[ECAMSITEM]%s[ECAMSITEM]%s[ECAMSITEM]%s[ECAMSITEM]%s",
+	                     szSendUsr,szRcvUsr,szLinkUrl,szDocTitle, szDocMsg);
+
+	printf("==================================================\n");
+	printf("전송 내용 szDestIp [%s]\n", szDestIp);
+	printf("전송 내용 iPort    [%d]\n", iPort);
+	printf("전송 URL           [%s]\n", szLinkUrl);
+	printf("전송 내용 date     [%s]\n", szSendData);
+	printf("==================================================\n\n");
+
+	if (memcmp(szNotiCD,"1",1) == 0){
+		CMDINFO.nPort	= iPort;
+		sprintf(CMDINFO.szJobGub, "K");
+		sprintf(CMDINFO.szServerIP, szDestIp);
+		sprintf(CMDINFO.szCommand, "%s", szSendData);
+		Server_Cmd_JOB(&CMDINFO);
+
+		fprintf(stdout, "전송결과  [%s]\n", CMDINFO.szRstCond);
+		if(strcmp(CMDINFO.szRstCond,"SVER") != 0) {
+			if (UpdApprovalData(szDestIp, szMakedt,makeSeq) != 0) {
+				return -1;
+			}
+		}
+		else {
+			fprintf(stderr, "전송오류 [%s]\n", CMDINFO.szRstCond);
+			return -1;
+		}
+	}
+	return 0;
+}
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

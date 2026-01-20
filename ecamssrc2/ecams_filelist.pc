@@ -1,0 +1,776 @@
+/*-----------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_filelist.pc                            │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 형상관리와 각 서버간의 파일정보 비교 MAIN    │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2011. 08. 23.                                │
+ ├──────┼───────────────────────┤
+ │ 작  정  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+int		Process_RsrcInf01		();
+void	inf_insert				();
+void	SetTempDir				();
+void	wait_inf_Fork			();
+void	cmd0027_insert			();
+
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	szSvrIP                [dfSvrIP];
+int		nPortNo                         ;
+int		nBefPort                        ;
+int     nJobSeq                         ;
+char	szDirPath                [dfDir];
+char	gSysCD                 [dfSysCD];
+char	szSysCd                [dfSysCD];
+char	szSvrCD                [dfSvrCD];
+char	szSvrNM                [dfSvrNM];
+char	szSysOS                [dfSysOS];
+char	QryStr                    [5000];
+char	szDiffDT                    [20];
+char	szDiffIP               [dfSvrIP];
+char	szInfFileName       [dfFullPath];
+char	szInfFileLocal      [dfFullPath];
+char	szInfFileRemote     [dfFullPath];
+char	szInfLine                 [2048];
+char	szDiffListPath           [dfDir];
+char	szDiffListHome           [dfDir];
+int     nDiffSeq                        ;
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_RsrcInf01                                */
+/*	Action    : 비교대상 서버/디렉토리 목록 작성 및 서버별 비교  */
+/*	            처리 프로그램 CALL                               */
+/*  Parameter : NONE                                             */
+/*  Return    : 0 : 정상, 1 : 오류                               */
+/*---------------------------------------------------------------*/
+int   Process_RsrcInf01	(
+						)
+{
+char	sJOBCD			       [dfJobCD];
+char	sRSRCCD			      [dfRsrcCD];
+char	sDSNCD			       [dfDsnCD];
+char	sRstFile	 	    [dfFullPath];
+char	sVOLPath		         [dfDir];
+char	sPRODVol		         [dfDir];
+char	szBaseDirCd                [2+1];
+char	szBefDirCd                 [2+1];
+char	szExeCd                    [2+1];
+char	szBefExeCd                 [2+1];
+char	szFileList          [dfFullPath];
+char	szTempFile          [dfFullPath];
+char	szCommand           [dfFullPath];
+char	sysdate                    [8+1];
+char	gFileDate                 [14+1];
+char  	gFileSize	              [10+1];
+int		nFileSize                       ;
+char	col_FileDate              [14+1];
+int		col_FileSize                    ;
+char	szBefDirPath             [dfDir];
+char	Dummy                     [2048];
+char	szDelDir                 [dfDir];
+char	szAgtDir                 [dfDir];
+char	szBefAgtDir              [dfDir];
+char	szExeName                  [512];
+char	szExeName2                 [512];
+char	szDelTermCd                [2+1];
+char	szDelMonth                 [6+1];
+char    szBefDiffYn                [1+1];
+char    szDiffYn                   [1+1];
+int		nCnt                            ;
+int		Retval                          ;
+int		Ret                             ;
+int     nDelTerm                        ;
+char	sSysCmd			    [dfFullPath];
+char	szWinDirPath	         [dfDir];
+char	szBefSvrIP             [dfSvrIP];
+char    szTmpWork1                 [512];
+char    szTmpWork2                 [512];
+int     ipCnt                           ;
+FILE	*SrcPtr                         ;
+CMD_INFO CmdInfo                        ;
+
+
+
+	/*-----------------------------------------------------------*/
+	/*	소켓 명령 변수 초기화                                    */
+	/*-----------------------------------------------------------*/
+	InitCmdInfo(&CmdInfo);
+
+
+    /*-----------------------------------------------------------*/
+    /*   작업 실행                               				 */
+    /*-----------------------------------------------------------*/
+    memset(szExeName,0x00,sizeof(szExeName));
+    EXEC SQL
+		SELECT  CM_DELTERM,CM_DELTERMCD,TO_CHAR(add_months(SYSDATE,-1),'YYYYMM')
+		  INTO  :nDelTerm, :szDelTermCd, :szDelMonth
+		  FROM  CMM0015
+		 WHERE  CM_STNO = 'ECAMS'
+		   AND  CM_RUNCD   = '01';
+
+	if (sqlca.sqlcode != 0) {
+		nDelTerm = 0;
+	}
+	else {
+		/*-------------------------------------------------------*/
+		/*	일정기간 경과한 대사결과 삭제처리                    */
+		/*-------------------------------------------------------*/
+		EXEC SQL
+			DELETE  CMD0026
+			 WHERE  CD_DIFFDT <= TO_CHAR(DECODE(:szDelTermCd, '1', SYSDATE - :nDelTerm
+			 	                                            , '2', SYSDATE - (:nDelTerm * 7)
+			 	                                            , '3', ADD_MONTHS(SYSDATE, - :nDelTerm)
+			 	                               ), 'YYYYMMDD'
+			 	                        );
+	    EXEC SQL COMMIT;
+	}
+
+
+	/*-----------------------------------------------------------*/
+	/*  전체 돌리는 경우 여기서 부터  */
+
+	EXEC SQL EXECUTE
+	     BEGIN
+	        SYSHOME2_STR('C',:gSysCD,:szDiffIP);
+	     END;
+	END-EXEC;
+
+	if (sqlca.sqlcode != 0) {
+		fprintf (stderr, "BaseDirectory Make Fail (SYSHOME2_STR) SQL ERROR  1 %s\n", sqlca.sqlerrm.sqlerrmc);
+		EXEC SQL ROLLBACK WORK RELEASE;
+		return 1;
+	}
+	EXEC SQL COMMIT;
+
+	EXEC SQL EXECUTE
+	     BEGIN
+	        SYSEXENAME_STR(:gSysCD,:szDiffIP);
+	     END;
+	END-EXEC;
+
+	if (sqlca.sqlcode != 0) {
+		fprintf (stderr, "BaseExeName Make Fail (SYSEXENAME_STR) SQL ERROR  1 %s\n", sqlca.sqlerrm.sqlerrmc);
+		EXEC SQL ROLLBACK WORK RELEASE;
+		return 1;
+	}
+
+	EXEC SQL COMMIT;
+
+	/*  여기 까지  */
+
+	printf("ecams_filelist start [%s] \n", szDiffDT);
+    memset (QryStr, 0x00,  sizeof(QryStr));
+	memset(szBefDirPath,0x00,sizeof(szBefDirPath));
+	memset(szBefSvrIP,0x00,sizeof(szBefSvrIP));
+	memset(szBefAgtDir,0x00,sizeof(szBefAgtDir));
+	memset(szBefDiffYn,0x00,sizeof(szBefDiffYn));
+	sprintf(QryStr,"   SELECT  A.CM_SVRIP,A.CM_SVRCD,A.CM_SVRNAME,A.CM_PORTNO,A.CM_SYSOS,A.CM_DIR,B.CM_DIRPATH,B.CM_SYSCD, \n");
+	sprintf(QryStr,"%s         E.CM_EXENAME EXENAME, \n", QryStr);
+	sprintf(QryStr,"%s         DECODE(E.CM_EXECD,'C','Y','E','Y',E.CM_EXECD),E.CM_BASEDIRCD,B.CM_DIFFYN \n", QryStr);
+	sprintf(QryStr,"%s   FROM  CMM0017 E,CMM0074 B,CMM0031 A, CMM0016 D,CMM0017 F, ", QryStr);
+	sprintf(QryStr,"%s         (SELECT CM_SYSCD FROM CMM0030 ", QryStr);
+	sprintf(QryStr,"%s           WHERE CM_CLOSEDT IS NULL ", QryStr);
+	sprintf(QryStr,"%s           MINUS ", QryStr);
+	sprintf(QryStr,"%s          SELECT CM_SYSCD FROM CMM0016 ", QryStr);
+	sprintf(QryStr,"%s           WHERE CM_STNO='ECAMS' ", QryStr);
+	sprintf(QryStr,"%s             AND CM_RUNCD='01' ", QryStr);
+	sprintf(QryStr,"%s             AND CM_EXISTYN='Y') C ", QryStr);
+	sprintf(QryStr,"%s  WHERE  C.CM_SYSCD=B.CM_SYSCD ", QryStr);
+	sprintf(QryStr,"%s    AND  B.CM_SYSCD=A.CM_SYSCD ", QryStr);
+	sprintf(QryStr,"%s    AND  B.CM_SVRIP=A.CM_SVRIP ", QryStr);
+	sprintf(QryStr,"%s    AND  A.CM_SVRCD='05'       ", QryStr);
+	sprintf(QryStr,"%s    AND  A.CM_SYSOS='01'       ", QryStr);
+	sprintf(QryStr,"%s    AND  F.CM_RUNCD='01'       ", QryStr);
+	sprintf(QryStr,"%s    AND  F.CM_EXISTYN='N'      ", QryStr);
+	sprintf(QryStr,"%s    AND  A.CM_SYSCD=F.CM_SYSCD ", QryStr);
+	sprintf(QryStr,"%s    AND  A.CM_SVRIP=F.CM_SVRIP ", QryStr);
+	sprintf(QryStr,"%s    AND  A.CM_CLOSEDT IS NULL  ", QryStr);
+	sprintf(QryStr,"%s    AND  B.CM_SYSCD=D.CM_SYSCD  ", QryStr);
+	sprintf(QryStr,"%s    AND  D.CM_RUNCD='01'  ", QryStr);
+	sprintf(QryStr,"%s    AND  D.CM_EXISTYN='N'  ", QryStr);
+	sprintf(QryStr,"%s    AND  D.CM_RUNCD=E.CM_RUNCD  ", QryStr);
+	sprintf(QryStr,"%s    AND  D.CM_SYSCD=E.CM_SYSCD  ", QryStr);
+	sprintf(QryStr,"%s    AND  D.CM_RUNCD=E.CM_RUNCD  ", QryStr);
+	sprintf(QryStr,"%s    AND  A.CM_SVRIP=E.CM_SVRIP  ", QryStr);
+
+	if (strcmp(gSysCD, "ALL") != 0)
+		sprintf(QryStr,"%s    AND  A.CM_SYSCD='%s'   ", QryStr, gSysCD);
+
+	if (strlen(szDiffIP) > 0) {
+		sprintf(QryStr,"%s    AND A.CM_SVRIP='%s'    ", QryStr, szDiffIP);
+	}
+	sprintf(QryStr,"%s ORDER BY A.CM_SVRIP,B.CM_DIRPATH,B.CM_SYSCD  ", QryStr);
+
+	EXEC SQL PREPARE S FROM :QryStr;
+	EXEC SQL DECLARE DIFFLIST01 CURSOR FOR S;
+
+    /*-----------------------------------------------------------*/
+    /*   서버별 파일목록 작성                     				 */
+    /*-----------------------------------------------------------*/
+	EXEC SQL OPEN DIFFLIST01;
+    while (1) {
+   		EXEC SQL fetch DIFFLIST01
+			INTO  :szSvrIP
+				, :szSvrCD
+				, :szSvrNM
+				, :nPortNo
+				, :szSysOS
+				, :szAgtDir
+				, :szDirPath
+				, :szSysCd
+				, :szExeName2
+				, :szExeCd
+				, :szBaseDirCd
+				, :szDiffYn;
+
+		if (sqlca.sqlcode == 1403){
+			break;
+		}
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+			fprintf (stderr, "SQL ERROR  1 %s\n", sqlca.sqlerrm.sqlerrmc);
+			return 1;
+		}
+		nCnt = 0;
+		NotUseDataTruncate(szSvrCD  , 0x20);
+		NotUseDataTruncate(szSvrNM  , 0x20);
+		NotUseDataTruncate(szSvrIP  , 0x20);
+		NotUseDataTruncate(szDirPath, 0x20);
+		NotUseDataTruncate(szSysOS  , 0x20);
+		NotUseDataTruncate(szAgtDir , 0x20);
+		NotUseDataTruncate(szSysCd  , 0x20);
+		NotUseDataTruncate(szBaseDirCd  , 0x20);
+		NotUseDataTruncate(szExeCd  , 0x20);
+		NotUseDataTruncate(szDiffYn  , 0x20);
+		sprintf(szExeName2,"%s",trunc_char(szExeName2));
+
+		if (strlen(szBefSvrIP) == 0) {
+			sprintf(CmdInfo.szServerIP, "%s", szSvrIP);
+			CmdInfo.nPort = nPortNo;
+			sprintf(CmdInfo.szJobGub, "S");
+			sprintf(CmdInfo.szCommand, "rm -rf  FILELIST*",szInfFileRemote);
+			Server_Cmd_JOB(&CmdInfo);
+
+			memset(szExeName,0x00,sizeof(szExeName));
+			strcpy(szBefDirPath,szDirPath);
+			strcpy(szBefSvrIP,szSvrIP);
+			strcpy(szBefAgtDir,szAgtDir);
+			strcpy(szBefDirCd,szBaseDirCd);
+			strcpy(szBefExeCd,szExeCd);
+			strcpy(szBefDiffYn,szDiffYn);
+			nBefPort = nPortNo;
+			nCnt = 0;
+			ipCnt = 0;
+			EXEC SQL
+				INSERT INTO CMD0026
+				   	  (CD_DIFFDT,CD_JOBSEQ,CD_SVRIP,CD_STDATE,CD_DIFFSEQ,CD_SVRNAME,CD_SYSCD)
+				SELECT :szDiffDT, NVL(MAX(CD_JOBSEQ),0)+1, :szSvrIP, SYSDATE,
+					     NVL(MAX(CD_DIFFSEQ),0)+1,:szSvrNM, :gSysCD
+				  FROM CMD0026
+				 WHERE CD_DIFFDT=:szDiffDT;
+
+			if (sqlca.sqlcode != 0){
+				/*LOG*/sprintf(gszLogMsg,"CMD0026 Insert SQL ERROR  1 [%s][%s][%s]\n", sqlca.sqlerrm.sqlerrmc,szDiffDT,szSvrIP);
+				eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+				EXEC SQL ROLLBACK;
+				exit(1);
+			}
+			EXEC SQL COMMIT;
+
+			EXEC SQL
+				SELECT MAX(CD_DIFFSEQ)
+				  INTO nDiffSeq
+				  FROM CMD0026
+				 WHERE CD_DIFFDT=:szDiffDT;
+
+			if (sqlca.sqlcode != 0){
+				/*LOG*/sprintf(gszLogMsg,"CMD0026 DIFFSEQ REQD ERROR  1 [%s][%s]\n", sqlca.sqlerrm.sqlerrmc,szDiffDT);
+				eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+				EXEC SQL ROLLBACK;
+				exit(1);
+			}
+
+			EXEC SQL
+				SELECT MAX(CD_JOBSEQ)
+				  INTO nJobSeq
+				  FROM CMD0026
+				 WHERE CD_DIFFDT=:szDiffDT
+				   AND CD_SVRIP=:szSvrIP;
+
+			if (sqlca.sqlcode != 0){
+				/*LOG*/sprintf(gszLogMsg,"CMD0026 JOBSEQ REQD ERROR  1 [%s][%s][%s]\n", sqlca.sqlerrm.sqlerrmc,szDiffDT,szSvrIP);
+				eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+				EXEC SQL ROLLBACK;
+				exit(1);
+			}
+
+			sprintf(szInfFileName,"FILELIST_%s_%d_%s", szDiffDT,nJobSeq, szSvrIP);
+			sprintf(szInfFileLocal,"%s/%s",szDiffListPath,szInfFileName);
+			remove(szInfFileLocal);
+
+			strcpy(szExeName,szExeName2);
+			cmd0027_insert(szDiffDT,szSvrIP,nJobSeq,szDirPath,szSysCd,szBaseDirCd);
+
+			continue;
+		}
+
+		if (strcmp(szBefSvrIP,szSvrIP) != 0 || (strcmp(szBaseDirCd,"C") == 0 &&  strcmp(szBefDirPath,szDirPath) != 0)) {
+			++nCnt;
+		} else if (strcmp(szBaseDirCd,"C") != 0) {
+			if (strlen(szBefDirPath)>strlen(szDirPath)) {
+				if (strcmp(mid_char(szBefDirPath, 1, strlen(szDirPath)),szDirPath) != 0) {
+					++nCnt;
+				} else {
+					strcpy(szBefDirPath,szDirPath);
+				}
+			} else if (strlen(szBefDirPath)==strlen(szDirPath)) {
+				if (strcmp(szBefDirPath,szDirPath) != 0) {
+					++nCnt;
+				}
+			} else {
+				if (strcmp(mid_char(szDirPath, 1, strlen(szBefDirPath)),szBefDirPath) != 0) {
+					++nCnt;
+				}
+			}
+		}
+		if (nCnt > 0) {
+			memset(szInfLine,0x00,sizeof(szInfLine));
+
+			sprintf(szInfLine,"%s%s%s,%s\n",szBefExeCd,szBefDirCd,szBefDirPath,szExeName);
+			memset(szExeName,0x00,sizeof(szExeName));
+
+			inf_insert(szInfFileLocal,szInfLine);
+
+			++ipCnt;
+
+			if (strcmp(szBefSvrIP,szSvrIP) != 0 || ipCnt >= 100 || strcmp(szBefDiffYn,"Y") == 0 || strcmp(szDiffYn,"Y") == 0) {
+				ipCnt = 0;
+
+				memset(szCommand,0x00,sizeof(szCommand));
+				sprintf(szCommand,"filelistchk");
+
+				do{
+					Ret = system(szCommand)/256;
+					sleep(2);
+				}while(Ret > 10);
+
+				printf("ecams_filelist server ip jobrun start [%s][%d][%s] \n", szDiffDT,nJobSeq,szBefSvrIP);
+
+				sprintf(szCommand,"./ecams_filelist_sub '%s' '%s' %d %d \"%s\" '%d' '%s' &",
+									gSysCD,szDiffDT,nDiffSeq,nJobSeq,szBefSvrIP,nBefPort,szBefAgtDir);
+				system(szCommand);
+
+				if (strcmp(szBefSvrIP,szSvrIP) != 0) {
+					sprintf(CmdInfo.szServerIP, "%s", szSvrIP);
+					CmdInfo.nPort = nPortNo;
+					sprintf(CmdInfo.szJobGub, "S");
+					sprintf(CmdInfo.szCommand, "rm -rf  FILELIST*",szInfFileRemote);
+					Server_Cmd_JOB(&CmdInfo);
+				}
+				EXEC SQL
+					INSERT INTO CMD0026
+					   	  (CD_DIFFDT,CD_JOBSEQ,CD_SVRIP,CD_STDATE,CD_DIFFSEQ,CD_SVRNAME,CD_SYSCD)
+					SELECT :szDiffDT, NVL(MAX(CD_JOBSEQ),0)+1, :szSvrIP, SYSDATE,:nDiffSeq,:szSvrNM, :gSysCD
+					  FROM CMD0026
+					 WHERE CD_DIFFDT=:szDiffDT;
+
+				if (sqlca.sqlcode != 0){
+					printf("CMD0026 Insert SQL ERROR [%s] [%s][%d][%s][%s]\n", szDiffDT,szSvrIP,nDiffSeq,szSvrNM,gSysCD);
+					/*LOG*/sprintf(gszLogMsg,"CMD0026 Insert SQL ERROR  1 [%s][%s][%s]\n", sqlca.sqlerrm.sqlerrmc,szDiffDT,szSvrIP);
+					eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+					EXEC SQL ROLLBACK;
+					exit(1);
+				}
+				EXEC SQL COMMIT;
+
+				EXEC SQL
+					SELECT MAX(CD_JOBSEQ)
+					  INTO nJobSeq
+					  FROM CMD0026
+					 WHERE CD_DIFFDT=:szDiffDT
+					   AND CD_SVRIP=:szSvrIP;
+
+				if (sqlca.sqlcode != 0){
+					/*LOG*/sprintf(gszLogMsg,"CMD0026 JOBSEQ REQD ERROR  1 [%s][%s][%s]\n", sqlca.sqlerrm.sqlerrmc,szDiffDT,szSvrIP);
+					eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+					EXEC SQL ROLLBACK;
+					exit(1);
+				}
+
+				sprintf(szInfFileName,"FILELIST_%s_%d_%s", szDiffDT, nJobSeq,szSvrIP);
+				sprintf(szInfFileLocal,"%s/%s",szDiffListPath,szInfFileName);
+				remove(szInfFileLocal);
+
+			}
+			strcpy(szBefDirPath, szDirPath  );
+			strcpy(szBefSvrIP  , szSvrIP    );
+			strcpy(szBefAgtDir , szAgtDir   );
+			strcpy(szBefDirCd  , szBaseDirCd);
+			strcpy(szBefExeCd  , szExeCd    );
+			strcpy(szBefDiffYn , szDiffYn   );
+			nBefPort = nPortNo;
+		}
+		
+		if (strlen(szExeName) == 0) {
+			strcpy(szExeName,szExeName2);
+		} 
+		else {
+			do {
+				ret = Char_Check(szExeName2, ",");
+				memset(szTmpWork2,0x00,sizeof(szTmpWork2));
+				if (ret>=0) {
+					memset(szTmpWork1,0x00,sizeof(szTmpWork1));
+					sprintf(szTmpWork1, "%s", left_char(szExeName2, ret+1));
+					if (strlen(szExeName2)>(ret+1)) {
+						sprintf(szTmpWork2, "%s", right_char(szExeName2, strlen(szExeName2) - ret -1));
+					} else {
+
+					}
+					strcpy(szExeName2,szTmpWork2);
+				} else {
+					strcpy(szTmpWork1,szExeName2);
+				}
+				if (Char_Check(szExeName, szTmpWork1)<0) {
+					strcat(szExeName,szTmpWork1);
+				}
+			} while(strlen(szTmpWork2) > 0);
+		}
+		cmd0027_insert(szDiffDT,szSvrIP,nJobSeq,szDirPath,szSysCd,szBaseDirCd);
+	}
+    EXEC SQL close DIFFLIST01;
+
+    if (strlen(szBefSvrIP) > 0) {
+    	sprintf(szInfFileName,"FILELIST_%s_%d_%s", szDiffDT, nJobSeq, szBefSvrIP);
+		sprintf(szInfFileLocal,"%s/%s",szDiffListPath,szInfFileName);
+
+		memset(szInfLine,0x00,sizeof(szInfLine));
+
+		sprintf(szInfLine,"%s%s%s,%s\n",szExeCd,szBaseDirCd,szBefDirPath,szExeName);
+		inf_insert(szInfFileLocal,szInfLine);
+
+		memset(szCommand,0x00,sizeof(szCommand));
+		sprintf(szCommand,"filelistchk");
+
+		do{
+			Ret = system(szCommand)/256;
+			sleep(2);
+		}while(Ret > 10);
+
+		printf("ecams_filelist server ip jobrun start [%s][%d][%s] \n", szDiffDT,nJobSeq,szSvrIP);
+
+		sprintf(szCommand,"./ecams_filelist_sub \"%s\" \"%s\" %d %d \"%s\" \"%d\" \"%s\" &",
+							gSysCD,szDiffDT,nDiffSeq,nJobSeq,szSvrIP,nPortNo,szAgtDir);
+		system(szCommand);
+
+	}
+
+    wait_inf_Fork(szDiffDT);
+
+    EXEC SQL DECLARE ADDRUN_CSR CURSOR FOR
+		SELECT A.CD_JOBSEQ,A.CD_SVRIP,B.CM_PORTNO,B.CM_DIR
+		  FROM CMM0031 B,CMD0026 A
+		 WHERE A.CD_DIFFDT=:szDiffDT
+		   AND A.CD_DIFFSEQ=:nDiffSeq
+		   AND A.CD_EDDATE IS NULL
+		   AND A.CD_SVRIP=B.CM_SVRIP
+		   AND B.CM_CLOSEDT IS NULL;
+
+
+	EXEC SQL open  ADDRUN_CSR;
+	while (1) {
+		EXEC SQL FETCH ADDRUN_CSR  INTO  :nJobSeq, :szSvrIP, :nPortNo,:szAgtDir;
+
+		if (sqlca.sqlcode != 0)	break;
+
+		++nCnt;
+		NotUseDataTruncate(szSvrIP    , 0x20);
+		NotUseDataTruncate(szAgtDir    , 0x20);
+
+		memset(szCommand,0x00,sizeof(szCommand));
+		sprintf(szCommand,"filelistchk");
+
+		do{
+			Ret = system(szCommand)/256;
+			sleep(2);
+		}while(Ret > 10);
+
+		printf("ecams_filelist server ip jobrun restart [%s][%d][%s] \n", szDiffDT,nJobSeq,szSvrIP);
+
+		sprintf(szCommand,"./ecams_filelist_sub \"%s\" \"%s\" %d %d \"%s\" \"%d\" \"%s\" &",
+							gSysCD,szDiffDT,nDiffSeq,nJobSeq,szSvrIP,nPortNo,szAgtDir);
+		system(szCommand);
+
+	}
+	EXEC SQL CLOSE ADDRUN_CSR;
+
+	wait_inf_Fork(szDiffDT);
+
+    EXEC SQL COMMIT WORK RELEASE;
+	return 0;
+
+}
+
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : SYSCOM_Rsrc_Get_T                                */
+/*	Action    : 서버에서 파일 수신 처리 MAIN                     */
+/*  Parameter : pServerIP    : 서버주소                          */
+/*              pSvrSeq      : 서버일련번호                      */
+/*  Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+void inf_insert(char *pRstFile,char *pBuf){
+	FILE *RstPtr;
+
+	RstPtr = fopen (pRstFile, "a+");
+	if (RstPtr == NULL){
+		return;
+	}
+	fprintf (RstPtr, "%s", pBuf);
+	fclose  (RstPtr);
+}
+
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : SYSCOM_Rsrc_Get_T                                */
+/*	Action    : 서버에서 파일 수신 처리 MAIN                     */
+/*  Parameter : pServerIP    : 서버주소                          */
+/*              pSvrSeq      : 서버일련번호                      */
+/*  Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+void cmd0027_insert(char *szDiffDT, char *szSvrIP,int nJobSeq,char *szDirPath, char *szSysCd,char *szBaseDirCd) {
+
+	memset(QryStr,0x00,sizeof(QryStr));
+	sprintf(QryStr,"INSERT  INTO  CMD0027 \n");
+	sprintf(QryStr,"%s  (CD_DIFFDT,CD_JOBSEQ,CD_SVRIP,CD_SEQNO,CD_SYSCD,CD_DIRPATH,CD_RSRCNAME, \n",QryStr);
+	sprintf(QryStr,"%s   CD_SVRCD,CD_SVRNAME,CD_DIFFRST,CD_ECAMSSIZE,CD_ECAMSDATE,    \n",QryStr);
+	sprintf(QryStr,"%s   CD_ECAMSMD5,CD_DSNCD,CD_CLOSEYN,CD_OPENYN,CD_VERYN,CD_RSRCCD) \n",QryStr);
+	sprintf(QryStr,"%s   (SELECT '%s',%d,D.CM_SVRIP,(SELECT NVL(MAX(CD_SEQNO),0) FROM CMD0027 \n",QryStr,szDiffDT,nJobSeq);
+	sprintf(QryStr,"%s                             WHERE CD_DIFFDT='%s'    \n",QryStr,szDiffDT);
+	sprintf(QryStr,"%s                               AND CD_JOBSEQ=%d) + ROWNUM,   \n",QryStr,nJobSeq);
+	sprintf(QryStr,"%s           A.CR_SYSCD,G.CM_DIRPATH,A.CR_RSRCNAME,  \n",QryStr);
+	sprintf(QryStr,"%s           D.CM_SVRCD,D.CM_SVRNAME,'FK',A.CR_FILESIZE,A.CR_FILEDATE, \n",QryStr);
+	sprintf(QryStr,"%s           A.CR_MD5SUM,A.CR_DSNCD,DECODE(A.CR_STATUS,'9','Y','N'),DECODE(A.CR_STATUS,'1','X','3','Y','N'),    \n",QryStr);
+	sprintf(QryStr,"%s           DECODE(SUBSTR(E.CM_INFO,12,1),'1','Y','N'),A.CR_RSRCCD    \n",QryStr);
+	sprintf(QryStr,"%s      FROM CMM0036 E,CMM0038 F,CMM0031 D,CMM0074 G,  \n",QryStr);
+	sprintf(QryStr,"%s            (SELECT CM_SYSCD FROM CMM0030 \n", QryStr);
+	sprintf(QryStr,"%s              WHERE CM_CLOSEDT IS NULL \n",    QryStr);
+	sprintf(QryStr,"%s              MINUS \n", QryStr);
+	sprintf(QryStr,"%s             SELECT CM_SYSCD FROM CMM0016 \n", QryStr);
+	sprintf(QryStr,"%s              WHERE CM_STNO='ECAMS' \n", QryStr);
+	sprintf(QryStr,"%s                AND CM_RUNCD='01'   \n", QryStr);
+	sprintf(QryStr,"%s                AND CM_EXISTYN='Y') C, \n", QryStr);
+	sprintf(QryStr,"%s           CMR0020 A \n",QryStr);
+	sprintf(QryStr,"%s     WHERE G.CM_SVRIP='%s'       \n",QryStr,szSvrIP);
+	sprintf(QryStr,"%s       AND G.CM_DIRPATH='%s'     \n",QryStr,szDirPath);
+	sprintf(QryStr,"%s       AND G.CM_SYSCD='%s'       \n",QryStr,szSysCd);
+	sprintf(QryStr,"%s       AND G.CM_SYSCD=D.CM_SYSCD \n",QryStr);
+	sprintf(QryStr,"%s       AND G.CM_SVRIP=D.CM_SVRIP \n",QryStr);
+	sprintf(QryStr,"%s       AND D.CM_CLOSEDT IS NULL  \n",QryStr);
+	sprintf(QryStr,"%s       AND D.CM_SVRCD='05'       \n",QryStr);
+	sprintf(QryStr,"%s       AND D.CM_SYSCD=C.CM_SYSCD \n",QryStr);
+	sprintf(QryStr,"%s       AND D.CM_SYSCD=F.CM_SYSCD \n",QryStr);
+	sprintf(QryStr,"%s       AND D.CM_SVRCD=F.CM_SVRCD \n",QryStr);
+	sprintf(QryStr,"%s       AND D.CM_SVRIP=F.CM_SVRIP \n",QryStr);
+	sprintf(QryStr,"%s       AND F.CM_SYSCD=A.CR_SYSCD \n",QryStr);
+	sprintf(QryStr,"%s       AND F.CM_RSRCCD=A.CR_RSRCCD \n",QryStr);
+	sprintf(QryStr,"%s       AND F.CM_SYSCD=E.CM_SYSCD \n",QryStr);
+	sprintf(QryStr,"%s       AND F.CM_RSRCCD=E.CM_RSRCCD \n",QryStr);
+	sprintf(QryStr,"%s       AND G.CM_SYSCD=A.CR_SYSCD \n",QryStr);
+	sprintf(QryStr,"%s       AND G.CM_DSNCD=A.CR_DSNCD \n",QryStr);
+	if (strcmp(szSvrIP,"9.2.100.191") == 0 && strcmp(left_char(szDirPath,7),"/nbsrun") == 0) {
+		sprintf(QryStr,"%s   AND (A.CR_RSRCCD<>'26' or     \n",QryStr);
+		sprintf(QryStr,"%s         SUBSTR(A.CR_RSRCNAME,1,1)<>'b' or \n",QryStr);
+		sprintf(QryStr,"%s         SUBSTR(A.CR_RSRCNAME,-3)<>'.sh') \n",QryStr);
+		sprintf(QryStr,"%s   )     \n",QryStr);
+	} else if (strcmp(szSvrIP,"9.2.100.191") == 0 && strcmp(left_char(szDirPath,7),"/pgm/nb") == 0) {
+		sprintf(QryStr,"%s   AND ((A.CR_RSRCCD='26'     \n",QryStr);
+		sprintf(QryStr,"%s        AND SUBSTR(A.CR_RSRCNAME,1,1)='b' \n",QryStr);
+		sprintf(QryStr,"%s        AND SUBSTR(A.CR_RSRCNAME,-3)='.sh' \n",QryStr);
+		sprintf(QryStr,"%s        AND A.CR_DSNCD IN (SELECT CM_DSNCD FROM CMM0070 \n",QryStr);
+		sprintf(QryStr,"%s                            WHERE CM_SYSCD=A.CR_SYSCD   \n",QryStr);
+		sprintf(QryStr,"%s                              AND CM_DSNCD=A.CR_DSNCD   \n",QryStr);
+		sprintf(QryStr,"%s                              AND SUBSTR(CM_DIRPATH,1,7)='/nbsdev') \n",QryStr);
+		sprintf(QryStr,"%s        AND G.CM_DIRPATH = ('/pgm/nb' || upper(substr(a.cr_rsrcname,2,4)) || '/shell')) \n",QryStr);
+		sprintf(QryStr,"%s       or A.CR_RSRCCD<>'26' OR  \n",QryStr);
+		sprintf(QryStr,"%s       (A.CR_RSRCCD='26'     \n",QryStr);
+		sprintf(QryStr,"%s        AND (SUBSTR(A.CR_RSRCNAME,1,1)<>'b' OR \n",QryStr);
+		sprintf(QryStr,"%s             SUBSTR(A.CR_RSRCNAME,-3)<>'.sh' OR \n",QryStr);
+		sprintf(QryStr,"%s             A.CR_DSNCD IN (SELECT CM_DSNCD FROM CMM0070 \n",QryStr);
+		sprintf(QryStr,"%s                            WHERE CM_SYSCD=A.CR_SYSCD   \n",QryStr);
+		sprintf(QryStr,"%s                              AND CM_DSNCD=A.CR_DSNCD   \n",QryStr);
+		sprintf(QryStr,"%s                              AND SUBSTR(CM_DIRPATH,1,7)<>'/nbsdev')) \n",QryStr);
+		sprintf(QryStr,"%s       AND G.CM_DIRPATH <> ('/pgm/nb' || upper(substr(a.cr_rsrcname,2,4)) || '/shell')))) \n",QryStr);
+	} else {
+		sprintf(QryStr,"%s   )     \n",QryStr);
+	}
+
+	EXEC SQL PREPARE insertCmD0027 FROM :QryStr;
+	EXEC SQL EXECUTE insertCmD0027;
+	if (sqlca.sqlcode != 0){
+		/*LOG*/sprintf(gszLogMsg,"SQL ERROR : [%d] [%s] [%s]\n", sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc,QryStr);
+		eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+		EXEC SQL ROLLBACK;
+
+		EXEC SQL
+			UPDATE CMD0026
+			   SET CD_EDDATE=SYSDATE
+			 WHERE CD_DIFFDT=:szDiffDT
+			   AND CD_JOBSEQ=:nJobSeq;
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != 1403){
+			/*LOG*/sprintf(gszLogMsg,"CMD0026 UPDATE SQL ERROR  1 [%s][%s][%s]\n", sqlca.sqlerrm.sqlerrmc,szDiffDT,szSvrIP);
+			eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+			EXEC SQL ROLLBACK;
+			return;
+		}
+
+	}
+
+	EXEC SQL COMMIT;
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : SYSCOM_Rsrc_Get_T                                */
+/*	Action    : 서버에서 파일 수신 처리 MAIN                     */
+/*  Parameter : pServerIP    : 서버주소                          */
+/*              pSvrSeq      : 서버일련번호                      */
+/*  Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+void	wait_inf_Fork(char *pMainNo){
+	char    SysCmd  [512];
+	int		retval       ;
+
+	retval = -1;
+
+	do{
+		sprintf (SysCmd, "ps -ef | grep ecams_filelist_sub | grep \"%s %d\" | grep -v grep",pMainNo,nDiffSeq);
+		retval = system (SysCmd) / 256;
+		sleep(5);
+	}while(retval == 0);
+
+}
+
+
+/*****************************************************************/
+/*                                                               */
+/*       형상관리와 각 서버간의 파일정보 비교 처리  MAIN         */
+/*                                                               */
+/*****************************************************************/
+int	main (int argc, char **argv, char **envp)
+{
+char	sExtName		[101];
+int		Retval				 ;
+int		ret                  ;
+char	sReqDT           [15];
+char	sJOBCD			   [5+1];
+char	sRSRCCD			   [5+1];
+char	sDSNCD			   [5+1];
+char	sRstFile	 	   [256];
+char	sVOLPath		   [101];
+char	sPRODVol		   [101];
+char	seCAMSSvr		    [20];
+char 	sSYSTIME	        [15];
+char	szRemotePath       [512];
+char	szCommand          [512];
+
+	if (argc < 2) {
+		fprintf(stderr, "Usage : %s <SYSCD> <서버주소> \n", argv[0]);
+		exit (1);
+	}
+
+	sprintf(gSysCD, "%s", argv[1]); /* 시스템                */
+	if (strlen(gSysCD) == 0) {
+		sprintf(gSysCD, "%s", "ALL"  ); /* 전체 시스템       */
+	}
+
+	memset(szDiffIP, 0x00, sizeof(szDiffIP));
+	memset(szDiffDT, 0x00, sizeof(szDiffDT));
+
+	if (argc > 2) {
+		sprintf(szDiffIP, "%s", argv[2]);
+	}
+
+	NotUseDataTruncate(gSysCD    , 0x20);
+	NotUseDataTruncate(szDiffIP  , 0x20);
+
+	CMD_INFO CmdInfo;
+	InitCmdInfo(&CmdInfo);
+	strcpy(gszLogPath,"LogMessage/");
+	Get_Sys_Date(gszLogFile);
+
+	strcat(gszLogFile,".log");
+
+	sprintf(CmdInfo.szLogFile,"%TransList.%s",gszLogPath,gszLogFile);
+	sprintf(szRemotePath,"FileList.%s",gszLogFile);
+	strcpy(gszLogFile, szRemotePath);
+	Get_Sys_Date (szDiffDT);
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE) {
+		/*LOG*/sprintf(gszLogMsg,"ecams_filelist	DB 연결 않됨 \n");
+		eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+		exit(1);
+	}
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+
+	NotUseDataTruncate(gszTempPath, 0x20);
+
+	/* 파일 생성시 파일이 저장될 경로 설정및 생성 */
+	SetTempDir("79",szDiffListPath);
+	NotUseDataTruncate(szDiffListPath, 0x20);
+	strcpy(szDiffListHome,szDiffListPath);
+	strcat(szDiffListPath,szDiffDT);
+
+	if (access(szDiffListPath,F_OK) != 0){
+		Local_Dir_Make(szDiffListPath);
+	}
+	
+	/*-----------------------------------------------------------*/
+    /*   불법변경 파일대사                                       */
+    /*-----------------------------------------------------------*/
+	Process_RsrcInf01 ();
+
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit (0);
+
+}
+
+/*---------------------------------------------------------------*/
+/*                E N D   O F   F I L E                          */
+/*---------------------------------------------------------------*/
+

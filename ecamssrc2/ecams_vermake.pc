@@ -1,0 +1,289 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_vermake.pc                             │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 버전파일 없는경우 운영서버에서 수신하여      │
+ │ 기      능 │ 버전파일 작성 처리 MAIN                      │ 
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2013. 05. 20                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath             [dfDir];
+char	szConvBackPath           [dfDir];
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			    거래 제어 처리   M A I N                         */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+char	szSysCD                [dfSysCD];
+char	szDSNCD                [dfDsnCD];
+char	szITEMID              [dfItemID];
+char	szRSRCNAME          [dfRsrcName];
+int 	szLstVer                        ;
+char	szDIRPATH                [dfDir];
+char	szSVRIP                [dfSvrIP];
+int 	szPORTNO                        ;
+char	szVOLPATH                [dfDir];
+char	szBackFile          [dfFullPath];
+char	SysCmd              [dfFullPath];
+char	szSvrCD                [dfSvrCD];
+char	szRsrcCD              [dfRsrcCD];
+char	szSysOS                      [3];
+int		szSvrSeq                        ;
+char	szChangDirPath           [dfDir];
+char	szChangDirPathTmp        [dfDir];
+int 	retval                          ;
+int 	szUpdateFg                      ;
+char	szLstVerFile        [dfFullPath];
+char	szMD5SUM                  [32+1];
+char	szProdMD5SUM              [32+1];
+CMD_INFO	  CmdInfo                   ;
+
+
+    if ( argc != 2 ) {
+        printf ("Usage : %s <시스템> \n", argv[0]);
+        exit (0);
+	}
+
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	/*-----------------------------------------------------------*/
+	/* 	신청번호 , 시리얼번호 초기화	          			     */
+	/*-----------------------------------------------------------*/
+	sprintf(szSysCD, "%s", argv[1]);
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE) {
+		fprintf(stderr, "ORACLE DATABASE CONNECT ERRO0R  \n");
+		exit(1);
+	}
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+
+	/*-----------------------------------------------------------*/
+    /*   소스백업 디렉토리                                       */
+    /*-----------------------------------------------------------*/
+	SetTempDir("93", gszBackPath);
+	if (cmp_right_char(gszBackPath, 1, "/") == 0) {
+		sprintf(gszBackPath, "%s", left_char(gszBackPath, strlen(gszBackPath) - 1));
+	}
+
+	/*-----------------------------------------------------------*/
+	/*	소켓 명령 변수 초기화                                    */
+	/*-----------------------------------------------------------*/
+	InitCmdInfo(&CmdInfo);
+	strcpy(CmdInfo.szAcptNo, "000000000000");
+	sprintf(CmdInfo.szLogFile,"%sTransList.%s",gszLogPath,gszLogFile);
+
+	/*-----------------------------------------------------------*/
+	/* 	거래제어 처리                            			     */
+	/*-----------------------------------------------------------*/
+	EXEC SQL DECLARE Version_Rsrc CURSOR FOR
+		SELECT  A.CR_DSNCD
+		      , A.CR_ITEMID
+		      , A.CR_RSRCCD
+		      , A.CR_RSRCNAME
+		      , A.CR_LSTVER
+		      , B.CM_DIRPATH
+		      , C.CM_SVRIP
+		      , C.CM_PORTNO
+		      , D.CM_VOLPATH
+		      , C.CM_SVRCD
+		      , C.CM_SEQNO
+		      , C.CM_SYSOS
+		  FROM  CMR0020 A
+		      , CMM0070 B
+		      , CMM0031 C
+		      , CMM0038 D
+		      , CMM0036 E
+		 WHERE  A.CR_SYSCD  = :szSysCD
+		   AND  A.CR_LSTVER > 0
+		   AND  A.CR_STATUS != '9'
+		   AND  A.CR_SYSCD = B.CM_SYSCD
+		   AND  A.CR_DSNCD = B.CM_DSNCD
+		   AND  A.CR_SYSCD = C.CM_SYSCD
+		   AND  C.CM_SVRCD = '03'
+		   AND  C.CM_SYSCD = D.CM_SYSCD
+		   AND  C.CM_SVRCD = D.CM_SVRCD
+		   AND  C.CM_SEQNO = D.CM_SEQNO
+		   AND  D.CM_RSRCCD = A.CR_RSRCCD
+		   AND  A.CR_SYSCD  = E.CM_SYSCD
+		   AND  A.CR_RSRCCD = E.CM_RSRCCD
+		   AND  SUBSTR(E.CM_INFO, 12, 1) = '1';
+
+	EXEC SQL OPEN  Version_Rsrc;
+    while (1) {
+		EXEC SQL FETCH Version_Rsrc
+			INTO  :szDSNCD   
+			    , :szITEMID  
+			    , :szRsrcCD
+			    , :szRSRCNAME
+			    , :szLstVer  
+			    , :szDIRPATH 
+			    , :szSVRIP   
+			    , :szPORTNO  
+			    , :szVOLPATH
+			    , :szSvrCD
+			    , :szSvrSeq
+			    , :szSysOS  ;
+
+		if (sqlca.sqlcode == 1403)	break;
+
+		if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+			break;
+		}
+
+		NotUseDataTruncate(szDSNCD   , 0x20);
+		NotUseDataTruncate(szITEMID  , 0x20);
+		NotUseDataTruncate(szRSRCNAME, 0x20);
+		NotUseDataTruncate(szDIRPATH , 0x20);
+		NotUseDataTruncate(szSVRIP   , 0x20);
+		NotUseDataTruncate(szVOLPATH , 0x20);
+		NotUseDataTruncate(szRsrcCD  , 0x20);
+		NotUseDataTruncate(szSvrCD   , 0x20);
+		NotUseDataTruncate(szSysOS   , 0x20);
+		
+		ChangeVolPath(szSysCD , szSvrCD, szRsrcCD, szSvrSeq, szDIRPATH, szChangDirPathTmp);
+
+		if (cmp_right_char(szChangDirPathTmp, 1, "/") == 0) {
+			sprintf(szChangDirPathTmp, "%s", left_char(szChangDirPathTmp, strlen(szChangDirPathTmp) - 1));
+		}
+
+		sprintf(szChangDirPathTmp, "%s", rep_char(szChangDirPathTmp, "/checkIn_hist/?#ACPTNO#", ""));
+		
+		/*-------------------------------------------------------*/
+		/*	서버 OS별 디렉토리 변환                              */
+		/*-------------------------------------------------------*/
+		Convert_WinDirPath (szSysOS, szChangDirPathTmp, szChangDirPath);
+			
+		/*-------------------------------------------------------*/
+		/*	소켓 버퍼사이즈 SET                                  */
+		/*-------------------------------------------------------*/
+		if (Server_Buff_Size(szSysCD, szSvrCD, szSvrSeq) == FALSE) {
+			fprintf(stderr, "서버 버퍼사이즈 조회실패 : [%s] [%s] [%d]\n", szSysCD, szSvrCD, szSvrSeq);
+			continue;
+		}
+
+		szUpdateFg = 0;
+		
+		sprintf(szLstVerFile, "%s/%s.%d", gszTempPath, szITEMID, szLstVer);
+		memset(szMD5SUM, 0x00, sizeof(szMD5SUM));
+		sprintf(SysCmd, "FileRead_cmr0025 %s %s %d", szITEMID, szLstVerFile, szLstVer);
+		retval = system(SysCmd) / 256;
+		if (retval == 0) {
+			retval = MD5SUM(szLstVerFile, szMD5SUM);
+			NotUseDataTruncate (szMD5SUM, 0x20);
+		}
+		remove (szLstVerFile);
+		
+		strcpy(CmdInfo.szJobGub, "G");
+		sprintf(CmdInfo.szServerIP,"%s",szSVRIP);
+		CmdInfo.nPort = szPORTNO;
+		sprintf(CmdInfo.szLocal, "%s/%s.prod", gszTempPath, szITEMID);
+
+		if (strcmp(szSysOS, dfWINDOWS) == 0) {
+			sprintf(CmdInfo.szRemote,"%s\\%s",szChangDirPath, szRSRCNAME);
+		}
+		else {
+			sprintf(CmdInfo.szRemote,"%s/%s",szChangDirPath, szRSRCNAME);
+		}
+		Server_Cmd_JOB(&CmdInfo);
+		
+		if (strcmp(CmdInfo.szRstCond,"0000") != 0) {
+			fprintf(stderr, "소스 READ ERROR : [%s] [%s] [%s] [%s]\n", szSysCD, CmdInfo.szLocal, CmdInfo.szRemote, CmdInfo.szRstCond);
+			continue;	
+		}
+		
+		retval = MD5SUM(CmdInfo.szLocal, szProdMD5SUM);
+		NotUseDataTruncate (szProdMD5SUM, 0x20);
+		
+		printf("[%s] [%s]\n", szMD5SUM, szProdMD5SUM);
+		
+		if (strcmp(szMD5SUM, szProdMD5SUM) != 0) {
+			szUpdateFg = 1;
+		}
+		
+		if (szUpdateFg == 1) {
+			sprintf(SysCmd, "cp '%s' '%s/%s/%s/%s/%s.%d.zip'", CmdInfo.szLocal, gszBackPath, szSysCD, szDSNCD, szITEMID, szRSRCNAME, szLstVer);
+			retval = system (SysCmd) / 256;
+			printf("%d %s\n", retval, SysCmd);
+			if (retval != 0) {
+				remove (CmdInfo.szLocal);
+				fprintf(stderr, "소스 버전 파일카피 ERROR : [%s]\n", SysCmd);
+				continue;
+			}
+			
+			sprintf(CmdInfo.szLocal,"%s/%s/%s/%s/%s.%d.zip", gszBackPath, szSysCD, szDSNCD, szITEMID, szRSRCNAME, szLstVer);
+			sprintf(SysCmd, "ecams_zip '%s'", CmdInfo.szLocal);	
+			retval = system (SysCmd) / 256;
+			printf("%d %s\n", retval, SysCmd);
+			if (retval != 0) {
+				remove (CmdInfo.szLocal);
+				fprintf(stderr, "소스 버전작성 ERROR : [%s]\n", SysCmd);
+				continue;
+			}			
+		}		
+		remove (CmdInfo.szLocal);
+	}
+	EXEC SQL close Version_Rsrc;
+
+
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit(0);
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

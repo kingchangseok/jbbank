@@ -1,0 +1,144 @@
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<%@ page language="java" contentType="text/html;charset=euc-kr"%>
+<%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
+
+<%@ page import = "com.ecams.common.logger.EcamsLogger"%>
+<%@ page import = "com.ecams.common.base.StringHelper"%>
+<%@ page import = "com.ecams.service.list.LoginManager"%>
+
+<c:import url="/js/ecams/common/commonscript.jsp" />
+
+<%
+ 	String strUsr_UserId = (String)(session.getAttribute("strUsr_UserId"));	
+System.out.println(strUsr_UserId);
+	String custIP = request.getRemoteAddr();
+	String Url = request.getRequestURL().toString();
+%>
+
+<%
+LoginManager loginManager = LoginManager.getInstance();
+
+if (strUsr_UserId == null || "".equals(strUsr_UserId)) {
+%>
+
+<script>
+	document.location.href = "/webPage/login/ecamsLogin.jsp";
+</script>
+
+<%
+} else {
+	String strUsr_FullUser = loginManager.getUserName(strUsr_UserId);
+		
+	if ("".equals(strUsr_FullUser) || strUsr_FullUser == "") {
+	%>
+		
+		<script>
+			alert('형상관리시스템 사용에 유효하지 않은 사용자입니다.');
+			window.close();
+		</script>
+		
+	<%
+	}else {
+		//strUsr_UserId = strUsr_FullUser;
+	%>
+		
+	<html>
+		<title>▒▒ 전북은행 형상관리시스템 ▒▒</title>
+		<form name='ssoForm' method='post'>
+			<input type="hidden" name="userId" value=<%=strUsr_UserId%>>
+			<input type="hidden" name="custIP" value=<%=custIP%>>
+			<input type="hidden" name="url" value=<%=Url%>>
+		</form>
+	
+		<script type="text/javascript">
+			var ipAddr = ssoForm.custIP.value;
+			var url = ssoForm.url.value;
+			var userId = ssoForm.userId.value;
+			var ajaxReturnData = null;
+							
+			//ISVALIDLOGIN 함수 호출 시 token 생성(common.js)
+			var userInfo = {
+				userId		: userId,
+			  	gnb			: "Real",
+				userPwd		: "SSO",
+			  	ipAddr		: ipAddr,
+			  	url 		: url,
+			  	sso			: true,
+ 			  	requestType	: 'ISVALIDLOGIN_NEW'  /*2025  start*/
+		  	}
+			console.log('userInfo',userInfo);
+		  	ajaxReturnData = ajaxCallWithJson('/webPage/login/Login', userInfo, 'json');
+		  	if(typeof ajaxReturnData === 'string') {
+		    	if (ajaxReturnData.indexOf('ENCERROR')>-1) {
+		    		dialog.alert('비정상접근입니다. 다시 로그인 하시기 바랍니다. [abnormal approach. Please log-in again]', function() {
+		    			return;	
+		    		});
+			      }
+			    
+			    if (ajaxReturnData == 'ERR') {
+			    	dialog.alert('오류발생. [Login Fail]', function() {
+			    		return;	
+			    	});
+			    }
+		    } else {
+				var etcObj = new Object();
+        		etcObj = ajaxReturnData;
+        		if (etcObj.retcd != null && etcObj.retcd != '' && etcObj.retcd != undefined) {
+            		authCode = etcObj.retcd;
+	    	
+	    			if (etcObj.userid != null && etcObj.userid != '' && etcObj.userid != undefined) userId = etcObj.userid;
+	    			else userId = '';		    
+		    		console.log('### authCode:',authCode);
+		    		    
+	    			if (etcObj.token != null && etcObj.token != '' && etcObj.token != undefined && etcObj.token != 'FAIL') {
+	    				sessionStorage.removeItem('access_token');
+			 	 	  	sessionStorage.setItem( "access_token", etcObj.token );
+	    			}
+	    			if (authCode == '0' || authCode == '9') {
+		    			loginNext();
+		    		}
+		    	}
+	    	}
+		     /*2025  end*/
+		    function loginNext() {
+		    	//Storage에 id먼저 넣어줘야 updateLoginIp 수행 가능 (common.js에서 tokencheck할 때 id없으면 clear시킴)
+		    	sessionStorage.removeItem('id');
+			    sessionStorage.setItem('id', userId);
+			    
+		    	//정상로그인
+	    		//updateLoginIp(에서 insertLoginLog도 같이 함)
+	    		/*
+				userInfo = {
+					userId		: id,
+					IpAddr		: ipAddr,
+					Url 		: url, 
+					requestType	: 'UPDATELOGINIP'
+			  	}
+				ajaxCallWithJson('/webPage/login/Login', userInfo);
+				*/
+				
+				var ret = updateLoginIp();
+		    	
+			  	document.ssoForm.action = '/webPage/main/eCAMSBase.jsp';
+		 		document.ssoForm.method = "post";
+		 		document.ssoForm.submit();
+		    }
+		    
+		    function updateLoginIp() {
+		    	userInfo = {
+					userId		: userId,
+					IpAddr		: ipAddr,
+					Url 		: url, 
+					requestType	: 'UPDATELOGINIP'
+			  	}
+				var ret = ajaxCallWithJson('/webPage/login/Login', userInfo);
+		    }
+		</script>
+	
+<%
+		//loginManager.updateLoginIp(strUsr_UserId, custIP, Url);
+		//loginManager.insertLoginLog(strUsr_UserId, custIP);
+	}
+}
+%>
+</html>

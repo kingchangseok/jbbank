@@ -1,0 +1,829 @@
+/*--------------------------------------------------------------
+ ┌──────┬───────────────────────┐
+ │ 프로그램명 │ ecams_parmeff.pc                             │
+ ├──────┼───────────────────────┤
+ │ 기      능 │ 모델/소스의 연관파라미터 조회 프로그램       │
+ ├──────┼───────────────────────┤
+ │ 작  성  일 │ 2013. 04. 29                                 │
+ ├──────┼───────────────────────┤
+ │ 작  성  자 │ 최   병   남                                 │
+ └──────┴───────────────────────┘
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+typedef struct
+{
+	short len;
+	char  arr[100];
+} vr;
+
+/*---------------------------------------------------------------*/
+/*       Oracle Sql Bind 변수 DEFINE                             */
+/*---------------------------------------------------------------*/
+EXEC SQL BEGIN DECLARE SECTION;
+    EXEC SQL TYPE vr IS VARRAW(100);
+    vr my_vr;
+EXEC SQL END DECLARE SECTION;
+
+
+#define DEBUG 1
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+int 	Process_ParmEff			();
+int 	Process_ResultMake		();
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath             [dfDir];
+char	szSaveRsrcName      [dfRsrcName];
+
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			형상관리의 자동신규 처리   M A I N                   */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+char	szSysCD                [dfSysCD];
+char	szItemID                [1000+1];
+char	szUserID              [dfEditor];
+int 	retval                          ;
+char	szRstFile           [dfFullPath];
+CMD_INFO	CmdInfo                     ;
+
+
+    if (argc != 4) {
+        printf ("\nUsage : %s <시스템코드> <프로그램등록번호> <사용자ID> \n\n", argv[0]);
+        exit (1);
+	}
+
+	sprintf(szSysCD   , "%s", argv[1]);
+	sprintf(szItemID  , "%s", argv[2]);
+	sprintf(szUserID  , "%s", argv[3]);
+
+	NotUseDataTruncate(szSysCD   , 0x20);
+	NotUseDataTruncate(szItemID  , 0x20);
+	NotUseDataTruncate(szUserID  , 0x20);
+	
+	if (strlen(szSysCD) == 0) {
+		exit (2);
+	}
+	
+	if (strlen(szItemID) == 0) {
+		exit (3);
+	}
+	
+	if (strlen(szUserID) == 0) {
+		exit (4);
+	}
+	
+	/*-----------------------------------------------------------*/
+	/* 로그 파일 Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	strcpy(gszLogPath,"LogMessage/");
+
+	gEnvp = envp;				         /*### gEnvp = 환경변수  */
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+	
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+
+	/*-----------------------------------------------------------*/
+	/*	소켓 명령 변수 초기화                                    */
+	/*-----------------------------------------------------------*/
+	InitCmdInfo(&CmdInfo);
+	strcpy(CmdInfo.szAcptNo, "000000000000");
+	sprintf(CmdInfo.szLogFile,"%sTransList.%s",gszLogPath,gszLogFile);
+	strcpy(CmdInfo.szServerIP, dfeCAMSSvrIP);
+	CmdInfo.nPort	= dfeCAMSFepPort;
+
+	retval = Process_ParmEff(szSysCD, szItemID, szUserID, &CmdInfo);
+
+	EXEC SQL COMMIT WORK RELEASE;
+
+	exit(0);
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_ParmEff                                  */
+/*	Action    : 모델/소스의 연관파라미터 자원목록 작성           */
+/*  Parameter : pSysCD    : 시스템코드                           */
+/*              pItemID   : 프로그램등록번호(모델)               */
+/*              pUserID   : 사용자번호                           */
+/*              pCmdInfo  : SOCKET STRUCTURE                     */
+/*	Return    : 정상 : 0, 오류 : 1                               */
+/*---------------------------------------------------------------*/
+int 	Process_ParmEff		( char *pSysCD
+							, char *pItemID
+							, char *pUserID
+							, CMD_INFO	*pCmdInfo
+							)
+{
+char	szSysCmd            [dfFullPath];
+char	szDummy             [dfFullPath];
+char	szSvDummy           [dfFullPath];
+char 	*szKeys                     [30];
+char 	*toktmp                         ;
+int 	retval                          ;
+int 	ret                             ;
+int	 	Index_key = 0                   ;
+int 	nCnt                            ;
+char	szJobCD                [dfJobCD];
+char	szEditor              [dfEditor];
+char	szStory                 [1000+1];
+char	szDirPath                [dfDir];
+char	szRsrcName          [dfRsrcName];
+char	szBaseRsrc          [dfRsrcName];
+char	szRsrcPath               [dfDir];
+char	szItemID              [dfItemID];
+char	szTmpItemID             [1000+1];
+char	szRsrcCDMsg              [100+1];
+char	szLangCDMsg              [100+1];
+char	szRsrcCD              [dfRsrcCD];
+char	szLangCD              [dfLangCD];
+char	szRstFile           [dfFullPath];
+char	szRstFile1          [dfFullPath];
+char	szDsnCD                [dfDsnCD];
+char	szSvrIP                [dfSvrIP];
+char	szDir                    [dfDir];
+char	szAcptNo              [dfAcptNo];
+int 	szPortNo                        ;
+char	strQuery                 [30000];
+char	szRstCond            [dfRstCode];
+int 	i                               ;
+char	szSvDirPath              [dfDir];
+char	szSvRsrcName        [dfRsrcName];
+char	szRsrcGB                    [10];
+FILE	*RstPtr                         ;
+FILE	*SrcPtr                         ;
+
+
+	sprintf(szRstFile, "%sEff_%s.tmp", gszTempPath, pUserID);
+    if ((RstPtr = fopen(szRstFile, "w+") ) == (FILE *) NULL) {
+    	return (2);
+    }
+    
+    strcpy(szTmpItemID, pItemID);
+    while (1) {
+    	ret = Char_Check(szTmpItemID, ",");
+    	if (ret < 0) {
+    		sprintf(szItemID, "%s", szTmpItemID);
+    		memset(szTmpItemID, 0x00, sizeof(szTmpItemID));
+    	}
+    	else {
+    		sprintf(szItemID   , "%s", left_char(szTmpItemID, ret));
+    		sprintf(szTmpItemID, "%s", right_char(szTmpItemID, strlen(szTmpItemID) - ret - 1));
+    	}
+    	
+    	sprintf(szTmpItemID, "%s", trunc_char(szTmpItemID));
+    	sprintf(szItemID   , "%s", trunc_char(szItemID   ));
+    		    		
+    	if (strlen(szItemID) == 0)	break;
+		
+		/*-------------------------------------------------------*/
+		/*	프로그램 정보 조회                                   */
+		/*-------------------------------------------------------*/
+		EXEC SQL
+			SELECT  CR_RSRCCD
+			      , CR_RSRCNAME
+			  INTO  :szRsrcCD
+			  	  , :szBaseRsrc
+			  FROM  CMR0020
+			 WHERE  CR_SYSCD  = :pSysCD
+			   AND  CR_ITEMID = :szItemID;
+		
+		if (sqlca.sqlcode != 0) {
+			fprintf(stderr, "프로그램정보 오류 (CMR0020) : [%s] [%s] [%d]\n", pSysCD, pItemID, sqlca.sqlcode);
+			return (1);
+		}
+		
+		sprintf(szRsrcCD  , "%s", trunc_char(szRsrcCD   ));
+		sprintf(szBaseRsrc, "%s", trunc_char(szBaseRsrc	));
+	
+	
+		/*-------------------------------------------------------*/
+		/*	서버 정보 조회 (주소, 포트, 디렉토리)                */
+		/*-------------------------------------------------------*/
+		EXEC SQL
+			SELECT  A.CM_SVRIP
+			      , A.CM_PORTNO
+			      , A.CM_DIR
+			  INTO  :szSvrIP
+			  	  , :szPortNo
+			  	  , :szDir
+			  FROM  CMM0031 A
+			      , CMM0038 B
+			 WHERE  B.CM_SYSCD  = :pSysCD
+			   AND  B.CM_RSRCCD = :szRsrcCD
+			   AND  B.CM_SVRCD = '01'
+			   AND  B.CM_SYSCD = A.CM_SYSCD
+			   AND  B.CM_SVRCD = A.CM_SVRCD
+			   AND  B.CM_SEQNO = A.CM_SEQNO
+			   AND  ROWNUM = 1;
+	   	
+	   	if (sqlca.sqlcode != 0)		return (1);
+	   		
+	   	NotUseDataTruncate(szSvrIP, 0x20);
+	   	sprintf(szDir, "%s", trunc_char(szDir));
+	   	
+		strcpy(pCmdInfo->szServerIP, szSvrIP);
+		pCmdInfo->nPort	= szPortNo;
+	
+		/*-------------------------------------------------------*/
+		/*	모델의 최종 변경신청 번호 조회                       */
+		/*-------------------------------------------------------*/
+		EXEC SQL
+			SELECT  NVL(MAX(B.CR_ACPTNO), '000000000000')
+			  INTO  :szAcptNo
+			  FROM  CMR1010 A
+			      , CMR1000 B
+			 WHERE  A.CR_ACPTNO    = B.CR_ACPTNO
+			   AND  A.CR_STATUS IN ('8', '9')
+			   AND  B.CR_STATUS IN ('8', '9')
+			   AND  A.CR_ITEMID   != A.CR_BASEITEM
+			   AND  A.CR_BASEITEM  = :szItemID
+			   AND  B.CR_QRYCD = '04'
+			   AND  A.CR_RSRCNAME LIKE '%.java';
+			   
+		if (sqlca.sqlcode != 0) {
+			sprintf(szAcptNo, "%s", "000000000000");
+		}
+		NotUseDataTruncate (szAcptNo, 0x20);
+	
+	
+		/*-------------------------------------------------------*/
+		/*	연관도 대상 소스 목록 작성                           */
+		/*-------------------------------------------------------*/
+		memset(strQuery,0x00,sizeof(strQuery));
+		if (strcmp(szAcptNo, "000000000000") == 0) {
+			sprintf(strQuery, "%s SELECT  'EFX'                         \n", strQuery);
+			sprintf(strQuery, "%s       , A.CR_RSRCNAME                 \n", strQuery);
+			sprintf(strQuery, "%s       , B.CM_DIRPATH                  \n", strQuery);
+			sprintf(strQuery, "%s   FROM  CMR0020 A                     \n", strQuery);
+			sprintf(strQuery, "%s       , CMM0070 B                     \n", strQuery);
+			sprintf(strQuery, "%s  WHERE  A.CR_ITEMID = '%s'            \n", strQuery, szItemID);			
+			sprintf(strQuery, "%s    AND  A.CR_SYSCD  = B.CM_SYSCD      \n", strQuery);			
+			sprintf(strQuery, "%s    AND  A.CR_DSNCD  = B.CM_DSNCD      \n", strQuery);			
+		}
+		else {
+			sprintf(strQuery, "%s SELECT  'JAVA'                        \n", strQuery);
+			sprintf(strQuery, "%s       , A.CR_RSRCNAME                 \n", strQuery);
+			sprintf(strQuery, "%s       , C.CM_DIRPATH                  \n", strQuery);
+			sprintf(strQuery, "%s   FROM  CMR1010 A                     \n", strQuery);
+			sprintf(strQuery, "%s       , CMR1000 B                     \n", strQuery);
+			sprintf(strQuery, "%s       , CMM0070 C                     \n", strQuery);
+			sprintf(strQuery, "%s  WHERE  A.CR_ACPTNO = B.CR_ACPTNO     \n", strQuery);
+			sprintf(strQuery, "%s    AND  A.CR_STATUS IN ('8', '9')     \n", strQuery);
+			sprintf(strQuery, "%s    AND  B.CR_STATUS IN ('8', '9')     \n", strQuery);
+			sprintf(strQuery, "%s    AND  A.CR_ITEMID != A.CR_BASEITEM  \n", strQuery);
+			sprintf(strQuery, "%s    AND  B.CR_ACPTNO   = '%s'          \n", strQuery, szAcptNo);			
+			sprintf(strQuery, "%s    AND  A.CR_BASEITEM = '%s'          \n", strQuery, szItemID);			
+			sprintf(strQuery, "%s    AND  A.CR_RSRCNAME LIKE '%%.java'  \n", strQuery);
+			sprintf(strQuery, "%s    AND  A.CR_SYSCD  = C.CM_SYSCD      \n", strQuery);			
+			sprintf(strQuery, "%s    AND  A.CR_DSNCD  = C.CM_DSNCD      \n", strQuery);			
+		}
+		EXEC SQL PREPARE SS FROM :strQuery;
+		EXEC SQL DECLARE SUBRSRC_LIST_CURSOR CURSOR FOR SS;
+		EXEC SQL OPEN SUBRSRC_LIST_CURSOR;
+	
+		while (1) {
+			EXEC SQL FETCH SUBRSRC_LIST_CURSOR
+				INTO  :szRsrcGB
+					, :szRsrcName
+					, :szRsrcPath;
+
+			if (sqlca.sqlcode == 1403)		break;
+			if (sqlca.sqlcode != 0 && sqlca.sqlcode != -1405) {
+				printf("SUBRSRC_LIST_CURSOR DB FETCH ERROR : [%s] [%d] [%s]", szItemID, sqlca.sqlcode, sqlca.sqlerrm.sqlerrmc);
+				break;
+			}
+		
+			NotUseDataTruncate(szRsrcGB  , 0x20);
+			NotUseDataTruncate(szRsrcName, 0x20);
+			sprintf(szRsrcPath, "%s", trunc_char(szRsrcPath));
+			
+			for (i = 0; i < 4; i++) {
+				ret = Char_Check(szRsrcPath, "/");
+				if (ret < 0)	break;
+					
+				sprintf(szRsrcPath, "%s", right_char(szRsrcPath, strlen(szRsrcPath) - ret - 1));
+			}
+			sprintf(szRsrcPath, "%s", rep_char(szRsrcPath, "/", "."));
+			
+			sprintf(pCmdInfo->szJobGub , "%s", "S");
+			if (strcmp(szRsrcGB, "EFX") == 0) {
+				sprintf(pCmdInfo->szCommand, "/cbsapps/shl/getAssociList.sh \"%s\" > %s/Eff_%s.txt", szRsrcName, szDir, pUserID);
+			}
+			else {
+				sprintf(pCmdInfo->szCommand, "/cbsapps/shl/getAssociList.sh \"%s.%s\" > %s/Eff_%s.txt", szRsrcPath, szRsrcName, szDir, pUserID);
+			}
+			Server_Cmd_JOB(pCmdInfo);	
+			
+			sprintf(szRstCond, "%s", pCmdInfo->szRstCond);
+		
+			if (strcmp(szRstCond, "0000") != 0) {
+				sprintf(pCmdInfo->szJobGub , "%s", "S");
+				sprintf(pCmdInfo->szCommand, "rm -f %s/Eff_%s.txt", szDir, pUserID);
+				Server_Cmd_JOB(pCmdInfo);	
+				sprintf(szRstCond, "%s", pCmdInfo->szRstCond);		
+				continue;
+			}
+		
+			sprintf(pCmdInfo->szJobGub, "%s", "G");
+			sprintf(pCmdInfo->szRemote, "%s/Eff_%s.txt", szDir      , pUserID);
+			sprintf(pCmdInfo->szLocal , "%sEff_%s.PARM", gszTempPath, pUserID);
+			Server_Cmd_JOB(pCmdInfo);
+		
+			sprintf(szRstCond, "%s", pCmdInfo->szRstCond);
+		
+			sprintf(pCmdInfo->szJobGub , "%s", "S");
+			sprintf(pCmdInfo->szCommand, "rm -f %s/Eff_%s.txt", szDir, pUserID);
+			Server_Cmd_JOB(pCmdInfo);
+			
+			if (strcmp(szRstCond, "0000") != 0) {	
+				remove (pCmdInfo->szLocal);
+				continue;
+			}
+			
+		    if ((SrcPtr = fopen(pCmdInfo->szLocal, "r") ) == (FILE *) NULL) {
+		    	continue;
+		    }
+		
+			retval = 0;
+			
+			while (fgets(szDummy, 2048, SrcPtr) != (char *) NULL) {
+		        /*-----------------------------------------------*/
+		    	/* Return Valure Truncate                        */
+		        /*-----------------------------------------------*/
+		        sprintf(szDummy, "%s", rep_char(szDummy,"\r\n", ""));
+		        sprintf(szDummy, "%s", rep_char(szDummy,"\r"  , ""));
+		        sprintf(szDummy, "%s", rep_char(szDummy,"\n"  , ""));
+		        sprintf(szDummy, "%s", trunc_char(szDummy));
+		        strcat (szDummy, "\t");
+		
+				Index_key = 0;
+				while(1) {
+					if (Index_key == 0)
+						szKeys[Index_key] = strtok_r(szDummy,"\t",&toktmp);
+					else
+						szKeys[Index_key] = strtok_r(NULL,"\t",&toktmp);
+		
+					if (szKeys[Index_key] == NULL)		break;
+					
+					Index_key++;
+				}
+		
+				if (Index_key == 0) {
+					fprintf(stderr,"Index_key == 0\n");
+					return 2;
+				}
+						
+				sprintf(szJobCD    , "%s", szKeys[0]);
+				sprintf(szEditor   , "%s", szKeys[1]);
+				sprintf(szStory    , "%s", szKeys[3]);
+				sprintf(szDirPath  , "%s", szKeys[4]);
+				sprintf(szRsrcCDMsg, "%s", szKeys[5]);
+				sprintf(szRsrcName , "%s", szKeys[2]);
+				sprintf(szLangCDMsg, "%s", "XML"    );
+		
+				sprintf(szJobCD    , "%s", trunc_char(szJobCD    ));
+				sprintf(szEditor   , "%s", trunc_char(szEditor   ));
+				sprintf(szStory    , "%s", trunc_char(szStory    ));
+				sprintf(szDirPath  , "%s", trunc_char(szDirPath  ));
+				sprintf(szRsrcCDMsg, "%s", trunc_char(szRsrcCDMsg));
+				sprintf(szLangCDMsg, "%s", trunc_char(szLangCDMsg));
+				sprintf(szRsrcName , "%s", trunc_char(szRsrcName ));
+				
+				retval = Process_ResultMake	( pSysCD
+											, szJobCD
+											, szEditor
+											, szStory
+											, szDirPath
+											, szRsrcCDMsg
+											, szLangCDMsg
+											, szRsrcName
+											, RstPtr
+											);
+				
+			}
+			fclose(SrcPtr);
+			remove (pCmdInfo->szLocal);		
+		}
+		EXEC SQL close SUBRSRC_LIST_CURSOR;
+	
+    }    
+	fclose (RstPtr);
+    
+	sprintf(szRstFile1, "%s.sort", szRstFile);
+	sprintf(szSysCmd, "sort %s > %s", szRstFile, szRstFile1);
+	system (szSysCmd);
+	
+	remove (szRstFile);
+    
+    if ((SrcPtr = fopen(szRstFile1, "r") ) == (FILE *) NULL) {
+    	return (3);
+    }
+
+	sprintf(szRstFile, "%sEff_%s.txt", gszTempPath, pUserID);
+    if ((RstPtr = fopen(szRstFile, "w+") ) == (FILE *) NULL) {
+    	return (4);
+    }
+    
+    memset(szSvDirPath , 0x00, sizeof(szSvDirPath ));
+    memset(szSvRsrcName, 0x00, sizeof(szSvRsrcName));
+    
+	while (fgets(szDummy, 2048, SrcPtr) != (char *) NULL) {
+        /*-------------------------------------------------------*/
+    	/* Return Valure Truncate                                */
+        /*-------------------------------------------------------*/
+        strcpy(szSvDummy, szDummy);
+        sprintf(szDummy, "%s", rep_char(szDummy,"\r\n", ""));
+        sprintf(szDummy, "%s", rep_char(szDummy,"\r"  , ""));
+        sprintf(szDummy, "%s", rep_char(szDummy,"\n"  , ""));
+        sprintf(szDummy, "%s", trunc_char(szDummy));
+        strcat (szDummy, "\t");
+
+		Index_key = 0;
+		while(1) {
+			if (Index_key == 0)
+				szKeys[Index_key] = strtok_r(szDummy,"\t",&toktmp);
+			else
+				szKeys[Index_key] = strtok_r(NULL,"\t",&toktmp);
+
+			if (szKeys[Index_key] == NULL)		break;
+			
+			Index_key++;
+		}
+
+		if (Index_key == 0) {
+			fprintf(stderr,"Index_key == 0\n");
+			return 2;
+		}
+
+		if (strcmp(szSvDirPath, szKeys[2]) == 0) {
+			if (strcmp(szSvRsrcName, szKeys[0]) == 0) {
+				continue;
+			}
+		}
+		strcpy(szSvDirPath , szKeys[2]);
+		strcpy(szSvRsrcName, szKeys[0]);
+
+		fprintf(RstPtr, "%s", szSvDummy);
+	}
+    fclose(SrcPtr);
+    fclose(RstPtr);
+
+	remove (szRstFile1);
+    	
+	return (retval);
+	
+}
+
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : Process_ResultMake                               */
+/*	Action    : 디렉토리정보 작성 및 목록파일 작성               */
+/*  Parameter : pSysCD     : 시스템코드                          */
+/*              pJobCD     : 업무코드                            */
+/*              pEditor    : 신규등록사번                        */
+/*              pStory     : 프로그램설명                        */
+/*              pDirPath   : 디렉토리                            */
+/*              pRsrcCDMsg : 프로그램종류                        */
+/*              pLangCDMsg : 언어                                */
+/*              pRsrcName  : 프로그램명                          */
+/*              pRstPtr    : 목록파일 Pointer                    */
+/*	Return    : 오류건수                                         */
+/*---------------------------------------------------------------*/
+int 	Process_ResultMake	( char *pSysCD
+							, char *pJobCD
+							, char *pEditor
+							, char *pStory
+							, char *pDirPath
+							, char *pRsrcCDMsg
+							, char *pLangCDMsg
+							, char *pRsrcName
+							, FILE *pRstPtr
+							)
+{
+char	szRsrcCD              [dfRsrcCD];
+char	szLangCD              [dfLangCD];
+char	szDsnCD                [dfDsnCD];
+int 	nCnt                            ;
+char	szUserName                 [100];
+char	szStatusMsg              [100+1];
+char	szItemID              [dfItemID];
+char	szEditor              [dfEditor];
+char	szStatus                   [1+1]; 
+
+
+
+	/*-----------------------------------------------------------*/
+	/*	업무코드 체크                                            */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  NVL(COUNT(*), 0)
+		  INTO  :nCnt
+		  FROM  CMM0102
+		 WHERE  CM_JOBCD = :pJobCD;
+		 	
+	if (sqlca.sqlcode != 0)
+		nCnt = 0;
+		
+	if (nCnt == 0) {
+		fprintf(stderr, "업무코드 오류 : [%s]\n", pJobCD);
+		return (1);
+	}
+
+	
+	/*-----------------------------------------------------------*/
+	/*	프로그램 종류코드 체크                                   */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  CM_MICODE
+		  INTO  :szRsrcCD
+		  FROM  CMM0020
+		 WHERE  CM_MACODE = 'JAWON'
+		   AND  CM_CODENAME = :pRsrcCDMsg
+		   AND  CM_CLOSEDT IS NULL;
+		 	
+	if (sqlca.sqlcode != 0)
+		memset(szRsrcCD, 0x00, sizeof(szRsrcCD));
+		
+	if (strlen(szRsrcCD) == 0) {
+		fprintf(stderr, "프로그램종류 오류 : [%s] [%s]\n", pRsrcCDMsg, pRsrcName);
+		return (1);
+	}
+	
+	NotUseDataTruncate (szRsrcCD, 0x20);
+	
+	
+	/*-----------------------------------------------------------*/
+	/*	언어코드 체크                                            */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  CM_MICODE
+		  INTO  :szLangCD
+		  FROM  CMM0020
+		 WHERE  CM_MACODE = 'LANGUAGE'
+		   AND  CM_CODENAME = :pLangCDMsg
+		   AND  CM_CLOSEDT IS NULL;
+		 	
+	if (sqlca.sqlcode != 0)
+		memset(szLangCD, 0x00, sizeof(szLangCD));
+		
+	if (strlen(szLangCD) == 0) {
+		fprintf(stderr, "언어종류 오류 : [%s] [%s]\n", pLangCDMsg, pRsrcName);
+		return (1);
+	}	
+			
+	NotUseDataTruncate (szLangCD, 0x20);
+	
+	/*-----------------------------------------------------------*/
+	/*	기 등록여부 조회                                         */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  A.CR_ITEMID
+		      , A.CR_EDITOR
+		      , A.CR_STATUS
+		      , B.CM_USERNAME
+		      , C.CM_CODENAME
+		  INTO  :szItemID
+		  	  , :szEditor
+		  	  , :szStatus
+		  	  , :szUserName
+		  	  , :szStatusMsg
+		  FROM  CMR0020 A
+		      , CMM0040 B
+		      , CMM0020 C
+		 WHERE  A.CR_SYSCD    = :pSysCD
+		   AND  A.CR_RSRCNAME = :pRsrcName
+		   AND  A.CR_EDITOR   = B.CM_USERID(+)
+		   AND  C.CM_MACODE   = 'CMR0020'
+		   AND  C.CM_MICODE   = A.CR_STATUS;
+
+	if (sqlca.sqlcode != 0) {
+		memset (szItemID   , 0x00, sizeof(szItemID   ));
+		memset (szEditor   , 0x00, sizeof(szEditor   ));
+		memset (szStatus   , 0x00, sizeof(szStatus   ));
+		memset (szUserName , 0x00, sizeof(szUserName ));
+		memset (szStatusMsg, 0x00, sizeof(szStatusMsg));
+	}
+	
+	NotUseDataTruncate(szItemID   , 0x20);
+	NotUseDataTruncate(szEditor   , 0x20);
+	NotUseDataTruncate(szStatus   , 0x20);
+	NotUseDataTruncate(szUserName , 0x20);
+	NotUseDataTruncate(szStatusMsg, 0x20);
+	
+	printf(">>> [%s] [%s] [%s] %s \n", pSysCD, pRsrcName, szItemID, szStatusMsg);
+	
+	
+	/*-----------------------------------------------------------*/
+	/*	디렉토리 체크하여 미등록이면 등록 (CMM0070)              */
+	/*-----------------------------------------------------------*/
+	while (1) {
+		EXEC SQL
+			SELECT  CM_DSNCD
+			  INTO  :szDsnCD
+			  FROM  CMM0070
+			 WHERE  CM_SYSCD   = :pSysCD
+			   AND  CM_DIRPATH = :pDirPath;
+
+		if (sqlca.sqlcode != 0) {
+			EXEC SQL
+				SELECT  LPAD(NVL(MAX(CM_DSNCD), 0) + 1, 7, '0')
+				  INTO  :szDsnCD
+				  FROM  CMM0070
+			     WHERE  CM_SYSCD = :pSysCD;
+				  
+			if (sqlca.sqlcode != 0)
+				break;
+			
+			NotUseDataTruncate (szDsnCD, 0x20);	
+			
+			EXEC SQL
+				INSERT  INTO  CMM0070
+					( CM_SYSCD
+					, CM_DSNCD
+					, CM_DIRPATH
+					, CM_EDITOR
+					, CM_OPENDT
+					, CM_LASTUPDT
+					)
+				VALUES 
+					( :pSysCD
+					, :szDsnCD
+					, :pDirPath
+					, :pEditor
+					, SYSDATE
+					, SYSDATE
+					);
+					
+			if (sqlca.sqlcode == 0)	break;
+			sleep (1);
+		}
+		else {
+			break;
+		}
+	}				
+	NotUseDataTruncate (szDsnCD, 0x20);
+	EXEC SQL COMMIT;
+
+	/*-----------------------------------------------------------*/
+	/*	디렉토리별 사용가능 프로그램종류 등록 (CMM0072)          */
+	/*-----------------------------------------------------------*/
+	while (1) {
+		EXEC SQL
+			SELECT  NVL(COUNT(CM_RSRCCD), 0)
+			  INTO  :nCnt
+			  FROM  CMM0072
+			 WHERE  CM_SYSCD  = :pSysCD
+			   AND  CM_DSNCD  = :szDsnCD
+			   AND  CM_RSRCCD = :szRsrcCD;
+		
+		if (sqlca.sqlcode != 0) {
+			EXEC SQL
+				INSERT  INTO  CMM0072
+					( CM_SYSCD 
+					, CM_DSNCD 
+					, CM_RSRCCD
+					)
+				VALUES 
+					( :pSysCD
+					, :szDsnCD
+					, :szRsrcCD
+					);
+					
+			if (sqlca.sqlcode == 0)	break;
+			sleep (1);
+		}
+		else {
+			break;
+		}
+	}				
+	EXEC SQL COMMIT;
+		
+	/*-----------------------------------------------------------*/
+	/*	디렉토리별 사용가능 업무 등록 (CMM0073)                  */
+	/*-----------------------------------------------------------*/
+	while (1) {
+		EXEC SQL
+			SELECT  NVL(COUNT(CM_JOBCD), 0)
+			  INTO  :nCnt
+			  FROM  CMM0073
+			 WHERE  CM_SYSCD = :pSysCD
+			   AND  CM_DSNCD = :szDsnCD
+			   AND  CM_JOBCD = :pJobCD;
+		
+		if (sqlca.sqlcode != 0) {
+			EXEC SQL
+				INSERT  INTO  CMM0073
+					( CM_SYSCD 
+					, CM_DSNCD 
+					, CM_JOBCD
+					)
+				VALUES 
+					( :pSysCD
+					, :szDsnCD
+					, :pJobCD
+					);
+					
+			if (sqlca.sqlcode == 0)	break;
+			sleep (1);
+		}
+		else {
+			break;
+		}
+	}				
+	EXEC SQL COMMIT;
+	
+	
+	if (strlen(szItemID) == 0)
+		sprintf(szItemID, "%s", "000000000000");
+
+	if (strlen(szStatus) == 0)
+		sprintf(szStatus, "%s", "-");
+
+	if (strlen(szEditor) == 0)
+		sprintf(szEditor, "%s", pEditor);
+
+	if (strlen(szUserName) == 0) {
+		if (strlen(szEditor) == 0) {
+			sprintf(szUserName, "%s", " ");
+		}
+		else {
+			EXEC SQL
+				SELECT  CM_USERNAME
+				  INTO  :szUserName
+				  FROM  CMM0040
+				 WHERE  CM_USERID = :szEditor;
+				 	
+			if (sqlca.sqlcode != 0) {
+				memset(szUserName, 0x00, sizeof(szUserName));
+			}
+			NotUseDataTruncate(szUserName, 0x20);
+
+			if (strlen(szUserName) == 0) {
+				sprintf(szUserName, "%s", " ");
+			}
+		}
+	}
+	
+	if (strlen(szStatusMsg) == 0)
+		sprintf(szStatusMsg, "%s", "미등록");
+
+	if (strlen(pStory) == 0)
+		sprintf(pStory, "%s", "설명없음");
+
+	/*-----------------------------------------------------------*/
+	/*	신규대상 파일 작성                                       */
+	/*-----------------------------------------------------------*/
+	fprintf(pRstPtr, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n"
+				  , pJobCD, szEditor, pRsrcName, pStory, pDirPath, pRsrcCDMsg
+				  , pLangCDMsg, szRsrcCD, szLangCD, szDsnCD, szUserName, szStatusMsg, szItemID, szStatus);
+	
+	return (0);
+
+}
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

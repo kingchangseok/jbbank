@@ -1,0 +1,511 @@
+전북1%
+문서보안 jbb@nk12
+
+사번 
+강창석 ecam001 : ecams1@3
+방지연 ecam002
+진가윤 ecam003
+
+
+개발(pideap1)
+ecams - !qazxsw2
+ecamsadm - 레인보우!23
+
+운영(jbbscm)
+ecams - X*Mp9V*l
+devecams - 전북1%
+
+
+소스 변경 여부 확인 관련
+
+홈페이지 > 홈페이지책임자 
+오픈뱅킹_WAS  >  책임자단계 없음
+오픈뱅킹_WEB  >  책임자단계 없음
+인터넷뱅킹_WAS >  책임자단계 없음
+... 등
+
+1. 명확하게 결재시 소스변경 여부를 체크할 단계가 필요합니다.
+2. 책임자가 신청시 책임자단계가 없는경우는 체크하지 않는것이 맞나요?
+3. 소스변경 여부에 중점을 둔다면 책임자 결재시 무조건 소스비교를 하는 것보다 결재하러 상세화면 이동시 
+   1) 소스변경없이 올라온 프로그램이 있는 경우
+      -> 결재버튼 비활성화 -> Alert창 표현("신청된 소스중 변경없이 적용요청된 프로그램이 있습니다. 확인 후 결재하여 주시기 바랍니다.")
+      -> 변경 여부 확인 후 결재/반려 
+   2) 소스변경이 모두 있는 경우
+      -> 기존 그대로 결재 절차 진행
+    
+
+3번 내용은 좀 더 결재를 간소화 하자는 취지로 제안드립니다.
+꼭 누군가가 소스비교를 통하여 비교를 해야 한다면 원 안 그대로 개발 예정입니다.
+
+3가지 내용 확인 하신 후 답변부탁드려요~
+
+
+
+
+
+
+지연 -> 소스변경 관련 건 칼럼 활용
+1. sysinfo 16번째 체크
+2. 바이너리 파일은 비교 대상 제외
+3. CMR1010 cr_md5sum(개발에서 저장된 md5), cr_befmd5(이전버전 md5)
+4. 적용요청상세 하단그리드 칼럼 추가(소스변경 O/X 표시) 해당 칼럼으로 sorting하며 변경없음X를 맨먼저 보이도록
+5. 소스변경없는 프로그램이 있는 경우 Alert 표시(신청건중 소스변경 없이 진행되는 프로그램이 있습니다 칼럼데이타중 소스변경칼럼을 확인해주시기 바랍니다.)  문구는 수정가능함
+
+
+
+
+select 'FileRead_cmr0025' || ' ' || a.cr_itemid || ' ' || '/home/ecams/bin/tmp/01200/' || (select cm_dirpath from cmm0070 where cm_syscd = a.cr_syscd and cm_dsncd = a.cr_dsncd) || ' ' || b.cr_lstver from
+(select distinct cr_syscd,cr_itemid,cr_dsncd from cmr1010 where substr(cr_acptno,5,2) ='04' and cr_baseitem <> cr_itemid and cr_baseitem in(
+select cr_itemid from cmr0020 where cr_syscd ='01200' and cr_rsrccd ='25' and cr_lstver > 0 and cr_status <> '9')) a, cmr0020 b
+where a.cr_itemid = b.cr_itemid and b.cr_rsrccd ='F1'
+
+select * from
+(select distinct cr_syscd,cr_itemid,cr_dsncd from cmr1010 where substr(cr_acptno,5,2) in('16','04') and cr_baseitem <> cr_itemid and cr_baseitem in(
+select cr_itemid from cmr0020 where cr_syscd ='01200' and cr_rsrccd ='25' and cr_lstver > 0 and cr_status <> '9')) a, cmr0020 b
+where a.cr_itemid = b.cr_itemid and b.cr_rsrccd ='F1'  and b.cr_clsdate is null
+-- 15654
+
+
+select * from
+(select distinct cr_syscd,cr_itemid,cr_dsncd from cmr1010 where substr(cr_acptno,5,2) in('16','04') and cr_baseitem = cr_itemid and cr_baseitem in(
+select cr_itemid from cmr0020 where cr_syscd ='01200' and cr_rsrccd ='F1' and cr_lstver > 0 and cr_status <> '9')) a, cmr0020 b
+where a.cr_itemid = b.cr_itemid and b.cr_rsrccd ='F1'  and b.cr_clsdate is null
+-- 15654
+
+
+select count(*) from cmr1010 where cr_syscd ='01200' and substr(cr_acptno,5,2) in('16','04') and cr_baseitem = cr_itemid and cr_rsrccd ='F1'
+
+select cr_itemid from cmr0020 where cr_syscd ='01200' and cr_rsrccd ='F1' and cr_lstver > 0 and cr_status <> '9')) a, cmr0020 b
+where a.cr_itemid = b.cr_itemid and b.cr_rsrccd ='F1'  and b.cr_clsdate is null
+-- 15654
+
+
+
+
+select 'FileDown_cmr0025' || ' ' || a.cr_itemid || ' ' || '/prodsrce_new/0929/01200/' || (select cm_dirpath from cmm0070 where cm_syscd = a.cr_syscd and cm_dsncd = a.cr_dsncd) || ' ' || b.cr_lstver from
+(select distinct cr_syscd,cr_itemid,cr_dsncd from cmr1010 where substr(cr_acptno,5,2) ='04' and cr_baseitem <> cr_itemid and cr_baseitem in(
+select cr_itemid from cmr0020 where cr_syscd ='01200' and cr_rsrccd ='25' and cr_lstver > 0 and cr_status <> '9')) a, cmr0020 b
+where a.cr_itemid = b.cr_itemid and b.cr_rsrccd ='F1'
+
+
+
+
+select 'FileDown_cmr0025' || ' ' || a.cr_itemid || ' ' || '/prodsrce_new/0929/01200/' || (select cm_dirpath from cmm0070 where cm_syscd = a.cr_syscd and cm_dsncd = a.cr_dsncd) || ' ' || a.cr_lstver from
+(select cr_syscd,cr_itemid,cr_dsncd,cr_lstver from cmr0020 a, cmm0034 b 
+ where cr_syscd ='01200' and cr_rsrccd ='F1' and cr_lstver > 0 
+   and cr_status <> '9' and cr_clsdate is null 
+   and a.cr_syscd = b.cm_syscd 
+   and a.cr_jobcd = b.cm_jobcd 
+   and b.cm_closedt is null) a;
+   
+   
+   
+-- 18917
+
+
+
+
+
+FileDown_cmr0025 000000623290 /home/ecams/bin/tmp/01200//RSA/JAVA/WebContent/WEB-INF/devonhome/dto/jbb/common/ibc/cex/elfnfnbbtocstpg/dacompgwdtaopenotprspn 18
+
+
+   select cr_dsncd,cr_rsrcname, count(*) from
+(select cr_syscd,cr_itemid,a.cr_rsrcname,cr_dsncd,cr_lstver from cmr0020 a, cmm0034 b 
+ where cr_syscd ='01200' and cr_rsrccd ='F1' and cr_lstver > 0 
+   and cr_status <> '9' and cr_clsdate is null 
+   and a.cr_syscd = b.cm_syscd 
+   and a.cr_jobcd = b.cm_jobcd 
+   and b.cm_closedt is null) a
+group by cr_dsncd,cr_rsrcname   
+having count(*) > 1
+   
+   
+18917
+
+   
+   
+   select 'FileDown_cmr0025' || ' ' || a.cr_itemid || ' ' || '/prodsrce_new/0929/01200' || (select cm_dirpath from cmm0070 where cm_syscd = a.cr_syscd and cm_dsncd = a.cr_dsncd) ||'/'|| a.cr_rsrcname  || ' ' || a.cr_lstver from
+(select cr_syscd,cr_itemid,a.cr_rsrcname,cr_dsncd,cr_lstver from cmr0020 a, cmm0034 b 
+ where cr_syscd ='01200' and cr_rsrccd ='F1' and cr_lstver > 0 
+   and cr_status <> '9' and cr_clsdate is null 
+   and a.cr_syscd = b.cm_syscd 
+   and a.cr_jobcd = b.cm_jobcd 
+   and b.cm_closedt is null) a
+   
+   
+   
+   ls -lAR | grep java |wc -l
+   
+   FileDown_cmr0025 000000353883 /home/ecams/bin/tmp/01200/RSA/JAVA/src/jbb/pvs/bbc/vmr/btch/merc/mercinfoaply/visamminfoexchaplyjob/VisammInfoExchAplyBbc.java 17
+   
+   
+   
+select a.*,c.cm_sysmsg,e.cm_username,f.cm_codename sta,					 
+       g.cm_codename sin,b.cm_jobname,										 
+       substr(a.cr_acptno,1,4) || '-' || substr(a.cr_acptno,5,2) ||	     
+       '-' || substr(a.cr_acptno,7,6) as acptno					         
+from cmm0102 b,cmm0020 g,cmm0030 c,cmm0020 f,cmm0040 e,cmr9900 d,cmr1000 a  
+where 																		 
+a.cr_prcdate is not null and 
+to_char(a.cr_acptdate,'yyyymmdd')>='20220929' and  
+to_char(a.cr_acptdate,'yyyymmdd')<='20220929' and  
+(d.cr_locat<>'00' and rtrim(d.cr_team) in ('SYSCB','SYSED') or (d.cr_status='0' and d.cr_locat<>'00' and rtrim(d.cr_team) in ('SYSCB','SYSED'))) and 
+a.cr_acptno=d.cr_acptno and 
+a.cr_qrycd='04' and 
+a.cr_syscd=c.cm_syscd and 
+a.cr_jobcd=b.cm_jobcd and 
+f.cm_macode='CMR1000' and a.cr_status=f.cm_micode and 
+g.cm_macode='REQUEST' and a.cr_qrycd=g.cm_micode and 
+a.cr_editor=e.cm_userid 
+order by a.cr_acptdate desc ;
+
+
+
+
+select a.*,c.cm_sysmsg,e.cm_username,f.cm_codename sta,					 
+       g.cm_codename sin,b.cm_jobname,										 
+       substr(a.cr_acptno,1,4) || '-' || substr(a.cr_acptno,5,2) ||	     
+       '-' || substr(a.cr_acptno,7,6) as acptno					         
+from cmm0102 b,cmm0020 g,cmm0030 c,cmm0020 f,cmm0040 e,cmr9900 d,cmr1000 a  
+where 																		 
+a.cr_prcdate is null and 
+to_char(a.cr_acptdate,'yyyymmdd')>='20220929' and  
+to_char(a.cr_acptdate,'yyyymmdd')<='20220929' and  
+d.cr_locat<>'00' and rtrim(d.cr_team) in ('SYSCB','SYSED') and
+a.cr_acptno=d.cr_acptno and 
+a.cr_qrycd='04' and 
+a.cr_syscd=c.cm_syscd and 
+a.cr_jobcd=b.cm_jobcd and 
+f.cm_macode='CMR1000' and a.cr_status=f.cm_micode and 
+g.cm_macode='REQUEST' and a.cr_qrycd=g.cm_micode and 
+a.cr_editor=e.cm_userid 
+order by a.cr_acptdate desc 
+
+
+
+select * from cmm0030 a, cmm0031 b where a.cm_syscd = b.cm_syscd and a.cm_closedt is null and b.cm_svrcd ='15'
+
+
+
+뱅킹시스템 요건 정리
+1. 검증 프로세스 변경(현재 검증 -> 개발 -> 운영) 업무팀 사용
+2. 롤백 프로세스 변경?
+3. 프로그램자동등록 화면 제공(API 제공)
+4. 외주개발자 대여분을 직원이 적용요청할수 있도록 변경하는 화면 제공
+
+
+
+
+
+   select 'FileDown_cmr0025' || ' ' || a.cr_itemid || ' ' || '/sw/ecams/bin/tmp/01200' || (select cm_dirpath from cmm0070 where cm_syscd = a.cr_syscd and cm_dsncd = a.cr_dsncd) ||'/'|| a.cr_rsrcname  || ' ' || a.cr_lstver from
+(select cr_syscd,cr_itemid,a.cr_rsrcname,cr_dsncd,cr_lstver from cmr0020 a, cmm0034 b 
+ where cr_syscd ='01200' and cr_rsrccd ='25' and cr_lstver > 0 
+   and cr_status <> '9' and cr_clsdate is null 
+   and a.cr_syscd = b.cm_syscd 
+   and a.cr_jobcd = b.cm_jobcd 
+   and b.cm_closedt is null) a
+
+
+
+
+
+
+select 'FileDown_cmr0025' ||  
+       ' ' ||  
+       a.cr_itemid ||  
+       ' ' ||  
+       '/tmp/ecams/RSA' ||  
+       (select cm_dirpath from cmm0070 where cm_syscd = a.cr_syscd and cm_dsncd = a.cr_dsncd) || 
+       '/' ||  
+       a.cr_rsrcname  ||  
+       ' ' || a.cr_lstver  
+  from (select cr_syscd, cr_itemid, a.cr_rsrcname, cr_dsncd, cr_lstver  
+          from cmr0020 a, cmm0034 b   
+         where cr_syscd ='01200' and cr_rsrccd ='25' and cr_lstver > 0   
+           and cr_status <> '9' and cr_clsdate is null 
+           and a.cr_syscd = b.cm_syscd   
+           and a.cr_itemid ='000001620904'
+           and a.cr_jobcd = b.cm_jobcd   
+           and b.cm_closedt is null 
+           and a.cr_itemid in (   SELECT DISTINCT(CR_ITEMID) CR_ITEMID 
+						     FROM CMR1010 X, CMR1000 Z 
+						    WHERE X.CR_ACPTNO = Z.CR_ACPTNO
+						      AND TO_CHAR(Z.CR_PRCDATE,'YYYYMMDDHH24MI') BETWEEN '202208290000' AND '202209302359' 
+						      AND Z.CR_STATUS = '9'
+						      AND SUBSTR(Z.CR_ACPTNO, 5, 2) = '03' 
+						      AND Z.CR_SYSCD = '01200' 
+						      AND X.CR_RSRCCD = '25'  )) a ;
+
+
+
+
+
+
+delete from cmr0020 where cr_itemid in(
+SELECT cr_itemid FROM CMR0020 WHERE CR_SYSCD = '?' and CR_STATUS='3' AND CR_DSNCD IN(SELECT CM_DSNCD FROM CMM0070 WHERE CM_SYSCD = '?' AND  CM_DIRPATH LIKE '/xframeweb%'));
+
+
+delete from cmr0020 where cr_itemid in(
+SELECT cr_itemid FROM CMR0020 WHERE CR_SYSCD = '90001' and CR_STATUS='3' AND CR_DSNCD IN(SELECT CM_DSNCD FROM CMM0070 WHERE CM_SYSCD = '90001' AND  CM_DIRPATH LIKE '/home/ecams%'));
+
+
+FileDown_cmr0025 000001620904 "/tmp/ecams/RSA/RSA/URS/2.시스템명세모델-03.프로세스컴포넌트-UOR.OR-08.Compliance Risk-내부통제위원회현황관리Pbi.efx" 5
+
+
+
+
+
+
+select 'FileDown_cmr0025' ||  
+       ' ' ||  
+       a.cr_itemid ||  
+       ' ' ||  
+       '"' || '/tmp/ecams/RSA'  ||  
+       (select cm_dirpath from cmm0070 where cm_syscd = a.cr_syscd and cm_dsncd = a.cr_dsncd) || 
+       '/' ||  
+       a.cr_rsrcname || '"'  ||  
+       ' ' || a.cr_lstver  
+  from (select cr_syscd, cr_itemid, a.cr_rsrcname, cr_dsncd, cr_lstver  
+          from cmr0020 a, cmm0034 b   
+         where cr_syscd ='01200' and cr_rsrccd ='25' and cr_lstver > 0   
+           and cr_status <> '9' and cr_clsdate is null 
+           and a.cr_syscd = b.cm_syscd   
+           and a.cr_itemid ='000001622838'
+           and a.cr_jobcd = b.cm_jobcd   
+           and b.cm_closedt is null 
+           and a.cr_itemid in (   SELECT DISTINCT(CR_ITEMID) CR_ITEMID 
+						     FROM CMR1010 X, CMR1000 Z 
+						    WHERE X.CR_ACPTNO = Z.CR_ACPTNO
+						      AND TO_CHAR(Z.CR_PRCDATE,'YYYYMMDDHH24MI') BETWEEN '202208290000' AND '202209302359' 
+						      AND Z.CR_STATUS = '9'
+						      AND SUBSTR(Z.CR_ACPTNO, 5, 2) = '03' 
+						      AND Z.CR_SYSCD = '01200' 
+						      AND X.CR_RSRCCD = '25'  )) a ;
+
+
+
+
+http://dscm.jbbank.co.kr:12223/initech/login_exec.jsp
+
+http://scm.jbbank.co.kr:4040/initech/login_exec.jsp
+
+
+
+ SELECT A.CR_ACPTNO,A.CR_ACPTDATE,A.CR_EMGCD,A.CR_ORDERID,
+       A.CR_EDITOR,A.CR_QRYCD,A.CR_SYSCD,A.CR_STATUS,A.CR_SAYU,
+       A.CR_GYULJAE,A.CR_PRCDATE,A.CR_SYSGB,a.cr_prcreq,
+       B.CM_SYSMSG,C.CM_DEPTNAME,D.CM_USERNAME,
+       to_char(a.cr_acptdate,'yyyy/mm/dd hh24:mi') as acptdate,
+       to_char(a.cr_prcdate,'yyyy/mm/dd hh24:mi') as prcdate,
+       substr(a.cr_acptno,1,4) || '-' || substr(a.cr_acptno,5,2) ||
+       '-' || substr(a.cr_acptno,7,6) as acptno,a.cr_passok,
+       (select cc_reqsub from cmc0420 where a.cr_orderid = cc_orderid(+)) CC_REQSUB,
+       (select cm_codename from cmm0020 where cm_macode ='REQPASS' and cm_micode = a.cr_passok) passok,
+       (select cm_codename from cmm0020 where cm_macode ='REQUEST' and cm_micode = a.cr_qrycd)  SIN
+  FROM  CMM0040 D,CMM0100 C,CMM0030 B,CMR1000 A
+ where (a.cr_qrycd in('01','02','04','06','11','16','60'))
+and ((A.CR_PRCDATE IS NOT NULL
+  and to_char(a.cr_acptdate,'yyyymmdd')>='20221005'
+  and to_char(a.cr_acptdate,'yyyymmdd')<='20221005')
+  or   a.cr_status='0')
+and a.cr_syscd=b.cm_syscd
+and d.cm_project = c.cm_deptcd
+and a.cr_editor = d.cm_userid
+
+
+
+ SELECT A.CR_ACPTNO,A.CR_ACPTDATE,A.CR_EMGCD,A.CR_ORDERID,
+       A.CR_EDITOR,A.CR_QRYCD,A.CR_SYSCD,A.CR_STATUS,A.CR_SAYU,
+       A.CR_GYULJAE,A.CR_PRCDATE,A.CR_SYSGB,a.cr_prcreq,
+       B.CM_SYSMSG,
+       (select CM_DEPTNAME from cmm0100 where cm_deptcd = (select cm_project from cmm0040 where cm_userid = a.cr_editor)) CM_DEPTNAME,
+       (select cm_username from cmm0040 where cm_userid = a.cr_editor) CM_USERNAME,
+       to_char(a.cr_acptdate,'yyyy/mm/dd hh24:mi') as acptdate,
+       to_char(a.cr_prcdate,'yyyy/mm/dd hh24:mi') as prcdate,
+       substr(a.cr_acptno,1,4) || '-' || substr(a.cr_acptno,5,2) ||
+       '-' || substr(a.cr_acptno,7,6) as acptno,a.cr_passok,
+       (select cc_reqsub from cmc0420 where a.cr_orderid = cc_orderid(+)) CC_REQSUB,
+       (select cm_codename from cmm0020 where cm_macode ='REQPASS' and cm_micode = a.cr_passok) passok,
+       (select cm_codename from cmm0020 where cm_macode ='REQUEST' and cm_micode = a.cr_qrycd)  SIN
+  FROM  CMM0030 B,CMR1000 A
+ where (a.cr_qrycd in('01','02','04','06','11','16','60'))
+and ((A.CR_PRCDATE IS NOT NULL
+  and to_char(a.cr_acptdate,'yyyymmdd')>='20220927'
+  and to_char(a.cr_acptdate,'yyyymmdd')<='20221005')
+  or   a.cr_status='0')
+and a.cr_syscd=b.cm_syscd
+
+select * from cmm0040 where to_char(cm_logindt,'yyyymmdd') > '20220101' order by cm_logindt desc
+
+
+완료 - http://scm.jbbank.co.kr:4040/NewFile.jsp
+완료 - 상세 화면 변경사유 팝업 기능                 
+진행중 - 적용요청 상세 -> 그리드 클릭시 앞에 체크박스 해제, 멀티셀렉트 해제 
+진행중 - 신청현황 그리드 sort
+
+
+
+http://scm.jbbank.co.kr:4040/webPage/ecams_interface.jsp?UserID=219091&url=/webPage/approval/ApprovalStatus.jsp
+
+여신BDT외부정보관리Pbi
+
+
+
+   
+
+ select distinct a.CC_REQID, a.CC_DOCTYPE, a.CC_DOCNUM, a.CC_DOCSUBJ, a.CC_DEPT1,
+       a.CC_REQUSER1, a.CC_DEPT2, a.CC_REQUSER2,
+       a.CC_DOCNUM2, a.CC_DETAILJOBN, a.CC_REQTYPE, a.CC_ENDPLAN, a.CC_JOBCD,
+        a.CC_ACTTYPE, a.CC_JOBDIF, a.CC_CHKTEAM, a.CC_CHKDATA, a.CC_DEVSTDT,
+        a.CC_DEVEDDT, a.CC_DETAILSAYU, a.CC_STARTDT, a.CC_ENDDT, a.CC_STATUS,
+        a.CC_EDITOR, a.CC_ETTEAM, ISR_RECVPART(a.CC_REQID) RECVPART,a.CC_DEVPERIOD,
+        DECODE(a.cc_requser1,null,'',b.cm_userid,b.cm_username) as bname,
+                g.cm_username as editorName,                                                                                          
+                DECODE(a.cc_dept1,null,'',f.cm_deptcd,f.cm_deptname) as CM_DEPTNAME
+ from cmc0400 a, cmm0040 b,cmm0100 f, cmm0040 g
+ where a.CC_STATUS in ('0' , '1' )
+ and b.cm_userid = a.cc_editor
+ and g.cm_userid = a.cc_editor
+ and f.cm_deptcd = a.cc_etteam
+ and a.cc_doctype = '03'
+
+
+select * From cmr0020 where cr_status ='E'
+
+업무지시서 발행
+(상세요청내용 동일하게)
+
+
+
+사용자정보 > 전체사용자조회 > 직무별 검색기능 넣었습니다. 
+타사이트에서 원하는곳이 많았어요.
+
+완료 > 업무지시서발행
+ 1. 신청상세내용(글자체크,space 추가)
+ 2. 첨부파일 없이 신청 시 신청완료 안됨
+완료 > 개발요청등록
+ 부서 / 수신부서 업데이트 안됨
+진행중 > 신규등록
+  MCI프로그램종류 누락
+      
+      
+            
+            
+java Http_Call 192.168.35.128:6290/resourceListRequest.jsp 215030 /home/ecams/bin/ecams.txt
+/weblogic/imo/ecamsApps/MCIMSG/resourceListFileDir/215030.txt
+
+
+
+
+cp ExtractHttpCom.class    ExtractHttpCom.class.20221011
+cp HttpCom.class           HttpCom.class.20221011
+cp Http_Call.class         Http_Call.class.20221011
+cp Http_Call2.class        Http_Call2.class.20221011
+cp Http_Call_UTF8.class    Http_Call_UTF8.class.20221011
+cp Http_UCCall.class       Http_UCCall.class.20221011
+cp SendMsgHttpCom.class    SendMsgHttpCom.class.20221011
+cp TextRW.class            TextRW.class.20221011
+
+
+
+
+/opt/java8/bin
+/opt/java8/bin/IA64N/java Http_Call 192.168.35.128:6290/resourceListRequest.jsp Id=215030 /home/ecams/bin/tmp/215030.txt
+java Http_Call 192.168.35.128:6290/resourceListRequest.jsp Id=215030 /home/ecams/bin/tmp/215030.txt
+
+주관부서확인 결재단계
+
+
+
+/opt/java6/bin/IA64N/java Http_Call 192.168.35.128:6290/resourceListRequest.jsp Id=215030 /home/ecams/bin/tmp/215030.txt
+/opt/java8/bin/IA64N/java Http_Call 192.168.35.128:6290/resourceListRequest.jsp Id=215030 /home/ecams/bin/tmp/215030.txt
+/opt/java8/bin/IA64N/java Http_Call 192.168.35.128:6290/resourceListRequest.jsp Id=215030 /home/ecams/bin/tmp/215030.txt
+
+/opt/java8/bin/IA64N/javac Http_Call.java
+
+
+zen 192.168.35.128 29895 0 S "/weblogic/imo/ecamsApps/MCIMSG/resourceListFileDir/215030* > ecams.log"
+
+
+cd ~ecams; . .profile
+/home/ecams/bin/ecams_autorsrc 01200 215030
+exit $rtval
+
+
+대리님 전체회수/FORTIFY단계완료 시 프로세스 죽이는거 넣을까요?
+
+
+
+
+SELECT  *  FROM  FORTIFY_SCA_NAME WHERE  PRO_ACPTNO = '2022-04-006102'   AND  SCA_END_CLSS IS NULL
+
+
+
+select cm_userid,cm_username,cm_conurl,cm_logindt from cmm0040 where (cm_conurl like '%office%' or cm_conurl like '%4040%') and to_char(cm_logindt,'yyyymmdd') > to_char(sysdate,'yyyymmdd') -1 order by cm_logindt desc
+select cm_userid,cm_username,cm_conurl,cm_logindt from cmm0040 where cm_conurl like 'http://scm.jbbank.co.kr/%' and to_char(cm_logindt,'yyyymmdd') > to_char(sysdate,'yyyymmdd') -1 order by cm_logindt desc
+
+
+
+
+select b.cr_acptno, b.cr_syscd, c.cm_sysmsg, a.cc_id, a.cc_subid, a.cc_subreq,a.cc_seqno, a.cc_savefile,                                                                                    
+a.cc_attfile, b.cr_editor, a.cc_reqcd, b.cr_sayu, to_char(b.cr_acptdate,'yyyy/mm/dd') as acptdate,
+(select cm_username from cmm0040 where b.cr_editor = cm_userid) as cm_username
+from   cmc1001 a,                                                                                                                        
+ cmr1000 b      , cmm0030 c                                                                                                              
+ where  b.cr_editor = '219091'                                                                                                           
+ and    substr(b.cr_acptno,5,2) = '04'                                                                                                   
+ and    b.cr_acptno = a.cc_id                                                                                                            
+ and    b.cr_syscd = c.cm_syscd                                                                                                          
+ and    to_char(b.cr_acptdate, 'yyyy/mm/dd') >= '2022/10/12'
+ and    to_char(b.cr_acptdate, 'yyyy/mm/dd') <= '2022/10/12'                
+ 
+
+1. 프로그램정보 > 버전동기화버튼 활성화 및 사용 체크
+  기존 : 관리자 + 일부사용자하드코딩 
+  변경 : 관리자 + 버전동기화 직무 유무 체크(RGTCD = "34"  버전동기화)
+2. 업무지시서 본인에 해당되는거만 보이게 수정 
+2. 프로그램정보 > 소스비교창 하단(변경후) 짤림 현상
+3. 웹취약성검증 미처리시(10분 이상진행) 표기 검토
+
+1. 프로그램정보 > 버전동기화버튼 활성화 > 직무추가(버전동기화)
+2. 업무지시서 본인에 해당되는거만 보이게 수정 > 현재 담당자가 같은 팀이면 보이도록 되어 있습니다.
+   변경 필요하시면 말씀해주세요.
+
+
+CMR3100.java
+ nextConf
+ packageConf   
+
+CMR0250.java
+ getPoc
+
+ 
+
+
+
+
+
+ 192.168.0.11 
+
+ root/dkwmthvmxm
+
+
+올해부터는 인상율을 정해서 연봉을 책정하고
+회사의 수익대비 직원개개인의 한해동안 성과에 따라 연말에 성과급으로 보상하겠다고 추가
+
+
+시스클라인
+1670-1755 
+
+
+
+포커스라운지(24시간영업)
+세미나실 없음
+https://map.naver.com/p/search/%EC%84%B1%EC%88%98%EC%97%AD%20%EA%B3%B5%EC%9C%A0%20%EC%98%A4%ED%94%BC%EC%8A%A4/place/2080741241?c=16.33,0,0,0,dh&placePath=/home&from=map&fromPanelNum=2&timestamp=202601130848&locale=ko&svcName=map_pcv5&searchText=%EC%84%B1%EC%88%98%EC%97%AD%20%EA%B3%B5%EC%9C%A0%20%EC%98%A4%ED%94%BC%EC%8A%A4
+
+
+
+
+
+인포그래픽 스타일 프롬프트
+[스타일] Create a bold, high-contrast editorial infographic style with a strong activist poster aesthetic: use a limited color palette dominated by deep navy blue and aggressive flat red as the primary accent, with off-white or desaturated cyan as secondary tones; compose human figures, objects, or symbols as simplified silhouettes or high-contrast cutouts with rough edges, screen-print textures, and visible halftone dots; layer graphic elements using collage techniques, torn-paper shapes, paint strokes, and rough brush typography overlays; incorporate imperfect alignment, cropped figures, and overlapping panels to create tension and movement; background should feel gritty and urban, with subtle noise, grain, and distressed textures; typography is bold, condensed, sans-serif or hand-drawn brush lettering, used large and partially obscured rather than neatly aligned; overall mood is urgent, political, and documentary-inspired, resembling protest graphics, investigative journalism visuals, or human-rights campaign infographics—focus purely on visual style, not content interpretation.

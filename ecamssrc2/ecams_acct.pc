@@ -1,0 +1,534 @@
+/*--------------------------------------------------------------
+ ????????????????????????????????????????????????????????????????
+ ?? ???¥á???? ?? ecams_acct.pc                                ??
+ ????????????????????????????????????????????????????????????????
+ ?? ??      ?? ?? eCAMS ???????? ???                        ??
+ ??            ?? Check Out/Check In (Compile)                 ??
+ ????????????????????????????????????????????????????????????????
+ ?? ??  ??  ?? ?? 2011. 07. 10                                 ??
+ ????????????????????????????????????????????????????????????????
+ ?? ??  ??  ?? ?? ??   ??   ??                                 ??
+ ????????????????????????????????????????????????????????????????
+-----------------------------------------------------------------*/
+
+#define		dfMain		1
+
+
+/*---------------------------------------------------------------*/
+/*     Header files                                              */
+/*---------------------------------------------------------------*/
+#include	<ecamsapi.h>
+#include 	<ecams_util.h>
+
+EXEC SQL INCLUDE "ecams_acct.h";
+
+
+typedef struct
+{
+	short len;
+	char  arr[100];
+} vr;
+
+/*---------------------------------------------------------------*/
+/*       Oracle Sql Bind ???? DEFINE                             */
+/*---------------------------------------------------------------*/
+EXEC SQL BEGIN DECLARE SECTION;
+    EXEC SQL TYPE vr IS VARRAW(100);
+    vr my_vr;
+EXEC SQL END DECLARE SECTION;
+
+
+#define DEBUG 1
+
+
+/*---------------------------------------------------------------*/
+/*       USER  PROCEDURE  DEFINE                                 */
+/*---------------------------------------------------------------*/
+void 	ProcJobID				(char *, char *, char *);
+void 	GetProcStep				(char *, char *);
+int 	IsPrivProcErr			(char *, char *);
+
+
+
+/*---------------------------------------------------------------*/
+/*		USER WORK DEFINE                                         */
+/*---------------------------------------------------------------*/
+char	gszRsultPath             [dfDir];
+
+
+
+
+/*****************************************************************/
+/*                                                               */
+/*			???????? ???   M A I N                            */
+/*                                                               */
+/*****************************************************************/
+int		main (int argc, char **argv, char** envp)
+{
+char	szAcptNo              [dfAcptNo]; /* eCAMS Log ???????  */
+char	szJobID               [dfPrcSys]; /* ??? ????           */
+char	szRstCond            [dfRstCode]; /* ??? ??? ???? ???? */
+char	SysCmd                     [256];
+int		nPid                            ;
+int 	retval                          ;
+int 	nReq16Cnt                       ;
+
+
+
+    if ( argc < 4 ) {
+        printf ("usage : %s <??????> <?????> <????????> \n", argv[0]);
+        exit (0);
+	}
+
+	memset(szAcptNo , 0x00, sizeof(szAcptNo ));
+    memset(szJobID  , 0x00, sizeof(szJobID  ));
+    memset(szRstCond, 0x00, sizeof(szRstCond));
+
+	/*-----------------------------------------------------------*/
+	/* ?¥á? ???? Set	        	  		                     */
+	/*-----------------------------------------------------------*/
+	Get_Sys_Date(gszLogFile);
+	strcat(gszLogFile,".log");
+	sprintf(gszLogPath, "%s", "LogMessage/");
+
+	/*-----------------------------------------------------------*/
+	/* 	?????? , ?©ª????? ????	          			     */
+	/*-----------------------------------------------------------*/
+	sprintf(szAcptNo   , "%s", argv[1]);     /* ???????         */
+	gEnvp = envp;				         /*### gEnvp = ??á½??  */
+
+	/*-----------------------------------------------------------*/
+    /*   Signal Define			                                 */
+    /*-----------------------------------------------------------*/
+    DefineSignal ();
+
+    /*-----------------------------------------------------------*/
+    /*   eCAMS  DB Server  Connect                               */
+    /*-----------------------------------------------------------*/
+	if (ConnectDB() == FALSE)
+		exit(1);
+
+	/*-----------------------------------------------------------*/
+    /*   Set Temp Directory                                      */
+    /*-----------------------------------------------------------*/
+	SetTempDir("99", gszTempPath);
+	memset(szJobID, 0x00, sizeof(szJobID));
+
+	/*-----------------------------------------------------------*/
+    /*   ?????? ????                                       */
+    /*-----------------------------------------------------------*/
+	SetTempDir("93", gszBackPath);
+
+	/*-----------------------------------------------------------*/
+    /*	?????? ???                                            */
+    /*-----------------------------------------------------------*/
+	GetProcStep(szAcptNo, szJobID);
+
+	/*LOG*/sprintf(gszLogMsg,"[%s] <%s>???????\n",szAcptNo,szJobID);
+    eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+
+	/*-----------------------------------------------------------*/
+	/*	ResultFile Dir ??                                      */
+	/*-----------------------------------------------------------*/
+	SetTempDir("11", gszRsultPath);
+	Local_Dir_Make(gszRsultPath );
+
+	/*-----------------------------------------------------------*/
+	/*	??? ID?? SYS???? ???	 			                 */
+	/*-----------------------------------------------------------*/
+	if (memcmp(szJobID, "SYS",3) != 0) {
+		/*LOG*/sprintf(gszLogMsg,"[%s] <%s>?????? JobID ???1\n",szAcptNo,szJobID);
+		eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+		EXEC SQL ROLLBACK WORK RELEASE;
+		exit (-1);
+	}
+	nPid = getpid ();
+
+
+	/*-----------------------------------------------------------*/
+	/*	?????????????? ??? ???¥ì???ID SET                     */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		UPDATE  CMR1010
+	       SET  CR_Pid    = :nPid
+         WHERE  CR_AcptNo = :szAcptNo;
+
+	EXEC SQL COMMIT;
+
+ 
+	EXEC SQL 
+		 UPDATE  CMR1010 A
+		    SET  (CR_VERSION,CR_BEFVER) = (SELECT  NVL(CR_LSTVER, 0)+1, NVL(CR_LSTVER, 0)
+		                                     FROM  CMR0020
+		                                    WHERE  CR_ITEMID = A.CR_ITEMID
+		                                )
+		  WHERE  CR_ACPTNO = :szAcptNo
+		    AND  CR_PRCDATE IS NULL
+		    AND  SUBSTR(:szAcptNo, 5, 2) = '04';
+
+ 
+ 	/*-----------------------------------------------------------*/
+	/*	??? ???¬Ü? ???					                     */
+	/*-----------------------------------------------------------*/
+	memset(szRstCond, 0x00, sizeof(szRstCond));
+	
+	ProcJobID(szAcptNo, szJobID, szRstCond);
+	
+	/*LOG*/sprintf(gszLogMsg,"[%s] <%s>??? ??? ???[%s]", szAcptNo, szJobID, szRstCond);
+	eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+
+	
+	if (cmp_mid_char(szAcptNo, 5, 2, "16") == 0 ) {
+		EXEC SQL
+			SELECT  COUNT(*)
+			  INTO  :nReq16Cnt
+			  FROM  CMR1010
+			 WHERE  CR_ACPTNO  = :szAcptNo
+			   AND  CR_STATUS != '3'
+			   AND  CR_VERSION > 0;
+		
+		if (sqlca.sqlcode != 0) {
+			nReq16Cnt = 0;
+		}
+		
+		if (nReq16Cnt == 0) {
+			EXEC SQL
+				DELETE  CMR9900
+				 WHERE  CR_ACPTNO = :szAcptNo
+				   AND  CR_TEAM   = 'SYSUP';
+		}
+		
+		EXEC SQL
+			UPDATE  CMR1010
+			   SET  CR_STATUS  = '3'
+			      , CR_PRCDATE = SYSDATE
+			 WHERE  CR_ACPTNO  = :szAcptNo
+			   AND  CR_STATUS != '3'
+			   AND  NVL(CR_PUTCODE, '0000') != '0000';
+			               
+		sprintf(szRstCond, "%s", "0000");
+	}
+	
+	
+	
+	/*-----------------------------------------------------------*/
+    /* ?????? UPDATE							                 */
+    /*-----------------------------------------------------------*/
+	if (strcmp(szRstCond,"0000") == 0 ) {
+		UPDT_RscMaint_List(szAcptNo, szJobID, szRstCond);
+		/*LOG*/sprintf(gszLogMsg,"[%s] <%s>??????? ???[%s]\n",szAcptNo,szJobID,szRstCond);
+		eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+	}
+
+	/*-----------------------------------------------------------*/
+    /*	???????? ????????? ????????? ???????????          */
+    /*-----------------------------------------------------------*/
+    retval = 0;
+	if (strcmp(szJobID, "SYSRMV") != 0) {
+		if (CheckSYS_Complete(szAcptNo) == 0) {
+			if (cmp_mid_char(szAcptNo, 5, 2, "04") == 0 ||
+				cmp_mid_char(szAcptNo, 5, 2, "06") == 0 ||
+				(cmp_mid_char(szAcptNo, 5, 2, "16") == 0 && nReq16Cnt > 0)) {
+				Process_VerFile(szAcptNo, szRstCond);
+				sprintf(gszLogMsg,"[%s][%s] ???????? ??? ??? [%s]", szAcptNo, szJobID, szRstCond);
+				eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+			}
+		}
+	}
+	EXEC SQL COMMIT WORK RELEASE;
+
+	if (retval == 0) {
+		sprintf(SysCmd, "ecams_req_maint > /dev/null &");
+		system (SysCmd);
+	}
+
+	/*LOG*/sprintf(gszLogMsg,"[%s] <%s>??? ???\n",szAcptNo,szJobID);
+	eCAMS_Log(gszLogPath,gszLogFile,gszLogMsg);
+
+	if (strcmp(szRstCond, "0000") == 0)
+		retval = 0;
+	else
+		retval = 1;
+		
+	exit(retval);
+}
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : GetProcStep                                      */
+/*	Action    : ??? ??? ???                                   */
+/*  Parameter : pAcptNo : ??????                               */
+/*              pJobID  : ??????                               */
+/*  Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+void	GetProcStep	( char *pAcptNo
+					, char *pJobID
+					)
+{
+char    sJobID                [dfPrcSys];
+
+
+	/*-----------------------------------------------------------*/
+	/*	??????? ???? ?????????? ???                          */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  CR_TEAM
+		  INTO  :sJobID
+		  FROM  CMR9900
+		 WHERE  CR_ACPTNO = :pAcptNo
+		   AND  CR_LOCAT  = '00'
+		   AND  CR_STATUS = '0';
+
+	if (sqlca.sqlcode != 0)		exit (9);
+		
+	NotUseDataTruncate (sJobID, 0x20);
+
+	strcpy(pJobID, sJobID);
+}
+
+
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : CheckSYS_Complete                                */
+/*	Action    : ???????? ??? ????? ???                    */
+/*  Parameter : pAcptNo : ??????                               */
+/*  Return    : 0 : ????, 1 : ???                             */
+/*---------------------------------------------------------------*/
+int 	CheckSYS_Complete	( char *pAcptNo
+							)
+{
+int 	nCnt                            ;
+
+	/*-----------------------------------------------------------*/
+	/*	???????????? ????????????? ????? ???              */
+	/*-----------------------------------------------------------*/
+	EXEC SQL
+		SELECT  COUNT(*)
+		  INTO  :nCnt
+	      FROM  CMR9900
+	     WHERE  CR_AcptNo = :pAcptNo
+	       AND  CR_Locat  <> '00'
+	       AND  CR_Status = '0'
+	       AND  SUBSTR(CR_Team, 1, 3) = 'SYS';
+
+	if (sqlca.sqlcode != 0)
+		nCnt = 0;
+
+	 return nCnt;
+}
+
+
+/*---------------------------------------------------------------*/
+/*	Function  : IsPrivProcErr                                    */
+/*	Action    : ????????? ????????? ?????? ????? ???         */
+/*	Parameter : pAcptNo  : ??????                              */
+/*	            pRstCond : ??????                              */
+/*	Return    : ???????                                         */
+/*---------------------------------------------------------------*/
+int 	IsPrivProcErr (char *pAcptNo
+					  ,char *pRstCond
+					  )
+{
+int 	nBefErrCnt = 0                  ;
+
+	/*-----------------------------------------------------------*/
+	/* 	????????? ??? ??? ????? ?????? ????? ???           */
+	/*-----------------------------------------------------------*/
+	if (nBefErrCnt == 0)	{
+		EXEC SQL
+			SELECT  Count(*)
+			  INTO  :nBefErrCnt
+			  FROM  CMR1000
+		     WHERE  CR_AcptNO IN (SELECT  CR_BEFACT
+			 					    FROM  CMR1030
+								   WHERE  CR_AcptNo = :pAcptNo
+								 )
+			   AND  CR_STATUS = '0';
+	}
+
+	/*-----------------------------------------------------------*/
+	/*	???? ????? ?????? ???? ???©£?? ?????? SET            */
+	/*		CMR1010.CR_PRCRST = 'BFER'                           */
+	/*-----------------------------------------------------------*/
+	if (nBefErrCnt > 0) {
+		strcpy(pRstCond, "BFER");
+		return 1;
+	}
+
+	return 0;
+}
+
+
+/*---------------------------------------------------------------*/
+/*  Function  : ProcJobID                                        */
+/*	Action    : ??? ??? ??? Function Call                   */
+/*  Parameter : pAcptNo  : ??????                              */
+/*              pSerNo   : ?????                              */
+/*              pJobID   : ??????                              */
+/*              pRstCond : ??????                              */
+/*	Return    : NONE                                             */
+/*---------------------------------------------------------------*/
+void	ProcJobID	( char *pAcptNo
+					, char *pJobID
+					, char *pRstCond
+					)
+{
+char	szRstCond            [dfRstCode]; /* ??? ??? ???? ???? */
+char	szJobID               [dfPrcSys]; /* ??? ????           */
+
+
+	sprintf(szJobID, "%s", pJobID);
+
+    if (strcmp(szJobID,"SYSANL") == 0) {
+		Process_SYSANL(pAcptNo,szJobID, pRstCond );
+    }
+
+    else
+    if (strcmp(szJobID,"SYSAL") == 0) {
+		Process_SYSAL(pAcptNo, szJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(szJobID,"SYSAR") == 0) {
+		Process_SYSAR(pAcptNo, szJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(szJobID,"SYSCB" ) == 0 ||
+		strcmp(szJobID,"SYSTCB") == 0 ) {
+		if (IsPrivProcErr(pAcptNo, pRstCond) == 0) {
+		    Process_SYSCOM(pAcptNo, szJobID, pRstCond);
+			if (strcmp(pRstCond, "9999") == 0 ||
+				strcmp(pRstCond, "SYS1") == 0 )  return ;
+		}
+    }
+
+    else
+    if (strcmp(szJobID,"SYSDN") == 0) {
+    	Process_SYSDNMV	(pAcptNo,szJobID, szRstCond);
+	    Process_SYSDN	(pAcptNo,szJobID, pRstCond);
+	    
+	    if (strcmp(pRstCond, "0000") != 0) {
+		    sprintf(szRstCond, "%s", pRstCond);
+	    	Process_SYSDNRMV(pAcptNo,szJobID, pRstCond, szRstCond);    	
+	    }
+	    else {
+	    	Process_SYSEFF	(pAcptNo,szJobID, pRstCond);
+	    }
+    }
+
+    else
+    if (strcmp(szJobID,"SYSFMK") == 0) {
+	    Process_SYSFMK(pAcptNo, szJobID,pRstCond);
+    }
+
+    else
+    if (strcmp(szJobID,"SYSPF") == 0) {
+    	Process_SYSPF(pAcptNo,szJobID,pRstCond );
+    	Process_SYSPF(pAcptNo,szJobID,pRstCond );
+	}
+
+    else
+    if (strcmp(szJobID,"SYSFT") == 0) {
+    	Process_SYSFT(pAcptNo,szJobID,pRstCond );
+	}
+
+    else
+    if (strcmp(szJobID,"SYSPMD") == 0) {
+    	Process_SYSPMD(pAcptNo,szJobID,pRstCond );
+	}
+
+    else
+    if (strcmp(szJobID,"SYSUP") == 0) {
+		if (cmp_mid_char(pAcptNo, 5, 2, "60") == 0 ) {
+    		Process_SYSUP60(pAcptNo,szJobID,pRstCond );
+    	}
+    	else {
+    		Process_SYSUP(pAcptNo,szJobID,pRstCond );
+    	}
+	}
+
+    else
+    if (memcmp(szJobID,"SYSDNC",6) == 0) {
+		Process_SYSDNC(pAcptNo, szJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(szJobID,"SYSDL") == 0) {
+		Process_SYSDL(pAcptNo,szJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(szJobID,"SYSMV") == 0) {
+		Process_SYSMV(pAcptNo,szJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(szJobID,"SYSRMV") == 0) {
+		Process_SYSRMV(pAcptNo,szJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(szJobID,"SYSCN") == 0) {
+		Process_SYSCN(pAcptNo,szJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(szJobID,"SYSED") == 0) {
+    	if (cmp_mid_char(pAcptNo, 5, 2, "60") == 0 ) {
+			Process_SYSED60(pAcptNo, szJobID, pRstCond);
+		}
+		else {
+			if (IsPrivProcErr(pAcptNo, pRstCond) == 0) {
+			   Process_SYSED(pAcptNo, szJobID, pRstCond);
+			}
+		}
+    }
+
+    else
+    if (strcmp(szJobID,"SYSTS") == 0) {
+    	if (cmp_mid_char(pAcptNo, 5, 2, "60") == 0 ) {
+			Process_SYSED60(pAcptNo, szJobID, pRstCond);
+		}
+		else {
+			if (IsPrivProcErr(pAcptNo, pRstCond) == 0) {
+			   Process_SYSED(pAcptNo, szJobID, pRstCond);
+			}
+		}
+    }
+
+    else
+    if (strcmp(szJobID,"SYSMCI") == 0) {
+		if (IsPrivProcErr(pAcptNo, pRstCond) == 0) {
+		   Process_SYSED(pAcptNo, szJobID, pRstCond);
+		}
+    }
+
+    else
+    if (strcmp(szJobID,"SYSCED") == 0) {
+	   Process_SYSCED(pAcptNo, szJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(szJobID,"SYSGB" ) == 0 ||
+    	strcmp(szJobID,"SYSTGB") == 0 ) {
+    	 Process_SYSGB(pAcptNo, szJobID, pRstCond);
+    }
+
+    else
+    if (strcmp(szJobID,"SYSJAR") == 0) {
+		Process_SYSJAR(pAcptNo, szJobID, pRstCond);
+    }
+
+    else {
+		return;
+    }
+    
+    sprintf(pJobID, "%s", szJobID);
+}
+
+
+/*---------------------------------------------------------------*/
+/*             E N D    O F    P R O G R A M                     */
+/*---------------------------------------------------------------*/

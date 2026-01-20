@@ -1,0 +1,1130 @@
+
+IP : 192.168.223.28
+
+http://scm.jbbank.co.kr:12301/
+http://tscm.jbbank.co.kr:12310/webPage/login/ecamsLogin.jsp
+
+메신져 : 
+esrs005 / wjsqnr1%
+
+
+
+jbbank_real_html5/WebContent/WEB-INF/classes
+
+
+
+
+
+/* SR 적용파일 목록   */
+1. /WEB-INF/classes/app/common/codeinfo.class
+2. /webPage/srlink/*
+3. cmm1000    getHoliDayAll_conn
+4. com.ecams.service.srlink SRRestApi.java
+5. codeinfoservelt  //sr오픈시 개발요청서 버튼 비활성
+   codeinfo.java 
+   RegistDevRequest.js
+   RegistOutSourcingReq.js
+   
+cp /sw/ecams/bin/tmp/CodeInfoServlet.class ./apps/ecamsweb/WEB-INF/classes/html/app/common/CodeInfoServlet.class
+cp /sw/ecams/bin/tmp/CodeInfo.class ./apps/ecamsweb/WEB-INF/classes/app/common/CodeInfo.class
+cp /sw/ecams/bin/tmp/RegistDevRequest.js ./apps/ecamsweb/js/ecams/dev/RegistDevRequest.js
+cp /sw/ecams/bin/tmp/RegistOutSourcingReq.js ./apps/ecamsweb/js/ecams/dev/RegistOutSourcingReq.js
+cp /sw/ecams/bin/tmp/SetOrderList.js ./apps/ecamsweb/js/ecams/dev/SetOrderList.js
+
+
+< 운영적용 목록 LIST >
+webPage/srlink  선반영
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/app/eCmm/Cmm1000.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/app/eCmm/Cmm1000.class 
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/html/app/common/CodeInfoServlet.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/html/app/common/CodeInfoServlet.class
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/app/common/CodeInfo.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/app/common/CodeInfo.class
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/dev/RegistDevRequest.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/RegistDevRequest.js
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/dev/RegistOutSourcingReq.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/RegistOutSourcingReq.js
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/dev/SetOrderList.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/SetOrderList.js
+
+
+
+2024-08-26 03:19:30 http://dscm.jbbank.co.kr:12223/
+2024-08-26 03:20:44 http://scm.jbbank.co.kr:12301
+
+운영
+http://192.168.11.65:12300/webPage/login/ecamsLogin.jsp
+http://pscm.jbbank.co.kr:12300/webPage/login/ecamsLogin.jsp
+
+테스트
+http://192.168.11.65:12310/webPage/login/ecamsLogin.jsp
+http://tscm.jbbank.co.kr:12301/webPage/login/ecamsLogin.jsp
+
+
+운영 )      http://scm.jbbank.co.kr:12301/webPage/main/eCAMSBase.jsp
+운영테스트 )   http://scm.jbbank.co.kr:12311/webPage/main/eCAMSBase.jsp
+
+
+/weblogic/tscm/tscmDomain01/shl/stopAll.sh
+/weblogic/tscm/tscmDomain01/shl/startAll.sh
+/weblogic/tscm/tscmDomain01/shl/restart.sh
+/weblogic/tscm/tscmDomain01/shl
+
+
+alter table cmc0400
+add(cc_srreqid varchar(20));
+
+
+
+
+
+
+
+cp /sw/ecams/bin/tmp/SRRestApi.class ./apps/ecamsweb/WEB-INF/classes/com/ecams/service/srlink/SRRestApi.class
+cp /sw/ecams/bin/tmp/CodeInfo.class ./apps/ecamsweb/WEB-INF/classes/app/common/CodeInfo.class
+
+
+
+
+#코드정보
+{
+    "CodeGbn":"CODEINFO",
+    "CmMaCd":"JOBTEAM"
+}
+
+#업무정보
+{
+    "CodeGbn":"JOB_CD"
+}
+
+#배포완료시 호출 eCAMS-> SR
+{
+  "SrDevReqNo":"SR2024-00001SD001",
+  "RequestDoc":{
+    "RequestDocNo":"개발요청서번호",
+    "EmpNo":"담당자(행번)"
+	
+	
+	
+-- 직원용	
+delete from cmc0400 where cc_reqid ='요청-자금결제실-2024-0020';
+delete from cmc0420 where cc_reqid ='요청-자금결제실-2024-0020';
+delete from cmc0410 where cc_reqid ='요청-자금결제실-2024-0020';
+delete from cmc0450 where cc_orderid ='지시-대여금고-2024-0002';
+
+요청-자금결제실-2024-0021  
+지시-대여금고-2024-0004
+
+-- 외주용
+delete from cmc0400 where cc_reqid ='요청-방카슈랑스-2024-0004';
+delete from cmc0420 where cc_reqid ='요청-방카슈랑스-2024-0004';
+delete from cmc0410 where cc_reqid ='요청-방카슈랑스-2024-0004';
+delete from cmc0450 where cc_orderid ='지시-대여금고-2024-0003';
+요청-방카슈랑스-2024-0005
+지시-대여금고-2024-0005
+
+
+update cmc0400 set cc_enddt ='' , cc_status ='1' where cc_reqid in('요청-방카슈랑스-2024-0004','요청-자금결제실-2024-0021','요청-방카슈랑스-2024-0005','요청-자금결제실-2024-0020')
+update cmc0410 set cc_enddt ='' , cc_status ='1' where cc_reqid in('요청-방카슈랑스-2024-0004','요청-자금결제실-2024-0021','요청-방카슈랑스-2024-0005','요청-자금결제실-2024-0020')
+update cmc0420 set cc_enddt ='' , cc_status ='1' where cc_reqid in('요청-방카슈랑스-2024-0004','요청-자금결제실-2024-0021','요청-방카슈랑스-2024-0005','요청-자금결제실-2024-0020')
+
+
+select * from cmc0400 where cc_reqid in('요청-방카슈랑스-2024-0004','요청-자금결제실-2024-0020')
+
+cp /sw/ecams/bin/tmp/Request_CC_Close.jsp ./apps/ecamsweb/webPage/srlink
+cp /sw/ecams/bin/tmp/Request_CC_Updt.jsp ./apps/ecamsweb/webPage/srlink
+cp /sw/ecams/bin/tmp/Request_CC_Reg.jsp ./apps/ecamsweb/webPage/srlink
+cp /sw/ecams/bin/tmp/Request_CC_PRD_Updt.jsp ./apps/ecamsweb/webPage/srlink
+cp /sw/ecams/bin/tmp/Request_CodeList.jsp ./apps/ecamsweb/webPage/srlink
+cp /sw/ecams/bin/tmp/Response_CC_Result.jsp ./apps/ecamsweb/webPage/srlink
+
+
+
+-- 개발요청서
+{"SrDevReqNo":"SR2024-000005SD-0002","RequestDoc":{"DocType":"01","DocNo":"SR2024-000005","ReqDeptCd":"0110","ReqEmpNo":"202001","DocSubject":"형상연동테스트","ReqDocNo":"SR2024-000005","BizManager":[{"EmpNo":"202026"}],"RecvDept":[{"SeqNo":"01","RecvDeptCd":"0093003"}],"JobCd":"00100","ManageType":"05","DiffcultyLevel":"02","RequestType":"22","Contents":"형상연동테스트\r\n","StartDt":"2024/08/27","EndDt":"2024/08/31","EmpNo":"219091","OrderDoc":{"JobTeamCd":"05","DocNo":"SR2024-000005","EndPlanDt":"2024/08/31","Referencor":[{"EmpNo":"204030"}],"Developer":[{"SeqNo":"01","EmpNo":"219091"},{"SeqNo":"02","EmpNo":"206036"}],"EmpNo":"202026"}}}
+
+-- 외주개발요청서
+{"SrDevReqNo":"SR2024-000001SD-0006","SmRequestDoc":{"DocType":"03","DocNo":"SR2024-000001","JobCd":"00100","BizManager":[{"EmpNo":"203018"}],"DocSubject":"외주개발형상테스트","Contents":"외주개발 형상테스트\r\n","StartDt":"2024/08/27","EndDt":"2024/10/31","EmpNo":"219091","OrderDoc":{"DocNo":"SR2024-000001","EndPlanDt":"2024/10/31","Referencor":[{"EmpNo":"211082"},{"EmpNo":"210101"}],"Developer":[{"SeqNo":"01","EmpNo":"424064"},{"SeqNo":"02","EmpNo":"423143"},{"SeqNo":"03","EmpNo":"210101"}],"EmpNo":"220003"}}}
+
+-- 혼합
+{"SrDevReqNo":"SR2024-000001SD-0007","RequestDoc":{"DocType":"01","DocNo":"01대내문서-SR2024-000001","ReqDeptCd":"0110","ReqEmpNo":"202001","DocSubject":"내부 + 외주 개발요청서","ReqDocNo":"SR2024-000001","BizManager":[{"EmpNo":"203018"}],"RecvDept":[{"SeqNo":"01","RecvDeptCd":"0091001"}],"JobCd":"00100","ManageType":"05","DiffcultyLevel":"02","RequestType":"31","Contents":"내부 + 외주 개발요청서\r\n","StartDt":"2024/08/27","EndDt":"2024/09/30","EmpNo":"219091","OrderDoc":{"JobTeamCd":"05","DocNo":"SR2024-000001","EndPlanDt":"2024/09/30","Referencor":[{"EmpNo":"213040"}],"Developer":[{"SeqNo":"01","EmpNo":"210091"},{"SeqNo":"02","EmpNo":"211102"}],"EmpNo":"203018"}},"SmRequestDoc":{"DocType":"03","DocNo":"SR2024-000001","JobCd":"00100","BizManager":[{"EmpNo":"203018"}],"DocSubject":"내부 + 외주 개발요청서","Contents":"내부 + 외주 개발요청서\r\n","StartDt":"2024/08/27","EndDt":"2024/09/30","EmpNo":"203018","OrderDoc":{"JobTeamCd":"05","DocNo":"SR2024-000001","EndPlanDt":"2024/09/30","Referencor":[{"EmpNo":"213040"}],"Developer":[{"SeqNo":"01","EmpNo":"424064"}],"EmpNo":"220003"}}}
+
+-- 종료 요청
+{
+  "SrDevReqNo": "SR2024-000005SD-0002",
+  "RequestDoc": {
+    "RequestDocNo": "요청-자금결제실-2024-0020",
+    "EmpNo": "219091"
+  }
+}
+
+-- 외주 종료 요청
+{
+  "SrDevReqNo": "SR2024-000001SD-0006",
+  "SmRequestDoc": {
+    "SmRequestDocNo": "요청-방카슈랑스-2024-0004",
+    "EmpNo": "219091"
+  }
+}
+
+-- 배포결과 연계
+http://scm.jbbank.co.kr:12311/webPage/srlink/Response_CC_Result.jsp?acptno=202404005921
+
+{"SrDevReqNo":"SR2024-000001SD-0011","RequestDoc":{"DocType":"01","DocNo":"SR2024-000001","ReqDeptCd":"0091","ReqEmpNo":"221021","DocSubject":"2024-08-28/형상개발테스트","ReqDocNo":"SR2024-000001","BizManager":[{"EmpNo":"219091"}],"RecvDept":[{"SeqNo":"01","RecvDeptCd":"0091001"}],"JobCd":"00050","ManageType":"04","DiffcultyLevel":"02","RequestType":"22","Contents":"2024-08-28/형상개발테스트\r\n","StartDt":"2024/08/28","EndDt":"2024/08/31","EmpNo":"219091","OrderDoc":{"JobTeamCd":"06","DocNo":"SR2024-000001","EndPlanDt":"2024/08/31","Referencor":[{"EmpNo":"219091"}],"Developer":[{"SeqNo":"01","EmpNo":"219091"},{"SeqNo":"02","EmpNo":"220003"}],"EmpNo":"219091"}}}
+
+-- 담당자변경
+{"SrDevReqNo":"SR2024-000001SD-0011","RequestDoc":{"RequestDocNo":"요청-IT기획부-2024-0002","BizManager":[{"EmpNo":"219091","Status":"1"}],"EmpNo":"219091","OrderDoc":{"OrderDocNo":"지시-도시군금고-2024-0021","EmpNo":"219091","Referencor":[{"EmpNo":"219091"}],"Developer":[{"SeqNo":"01","EmpNo":"219091"},{"SeqNo":"02","EmpNo":"220003"},{"SeqNo":"03","EmpNo":"203018"}]}}}
+
+-- 개발기간변경
+{
+  "SrDevReqNo": "SR2024-000001SD-0011",
+  "RequestDoc": {
+    "RequestDocNo":"요청-IT기획부-2024-0002",
+    "StartDt":"2024/09/01",
+    "EndDt":"2024/09/07",
+    "EmpNo": "219091"
+  }
+}
+https://dsrs.jbbank.co.kr
+
+
+
+{
+  "SrDevReqNo": "SR2024-00001SD001",
+  "RequestDoc": {
+    "DocType": "문서유형(01-대내,02-대외,99-기타)",
+    "DocNo": "문서번호(01대내문서-SR문서번호)",
+    "ReqDeptCd": "요청부점ID",
+    "ReqEmpNo": "요청자ID",
+    "DocSubject": "개발요청서명",
+    "ReqDocNo": "주관부서문서번호",
+    "BizManager": [
+      {
+        "EmpNo": "주관부서담당자ID",
+        "EmpStatus": "등록01,삭제00"
+      }
+    ],
+    "RecvDept": [
+      {
+        "SeqNo": "일련번호(01)",
+        "RecvDeptCd": "개발요청서발행파트(XXXX000)"
+      }
+    ],
+    "JobCd": "업무",
+    "ManageType": "조치유형",
+    "DiffcultyLevel": "업무난이도",
+    "RequestType": "요청유형",
+    "Contents": "추가업무내용",
+    "StartDt": "개발시작일자",
+    "EndDt": "개발종료일자",
+    "EmpNo": "담당자(행번)",
+    "DocEmpStatus": "등록01, 수정02",
+    "OrderDoc": {
+      "JobTeamCd": "업무지시서발행코드",
+      "DocNo": "발행근거(01대내문서-SR문서번호)",
+      "EndPlanDt": "개발종료일",
+      "Referencor": [
+        {
+          "EmpNo": "제3자행번",
+          "EmpStatus": "등록01,삭제00"
+        }
+      ],
+      "Developer": [
+        {
+          "SeqNo": "일련번호",
+          "EmpNo": "개발담당자행번",
+          "EmpStatus": "등록01,삭제00"
+        }
+      ],
+      "EmpNo": "담당자(행번)",
+      "DocEmpStatus": "등록01, 수정02"
+    }
+  },
+  "SmRequestDoc": {
+    "DocType": "01-대내,02-대외,99-기타",
+    "DocNo": "01대내문서-SR문서번호",
+    "JobCd": "업무",
+    "BizManager": [
+      {
+        "EmpNo": "123456",
+        "EmpStatus": "등록01,삭제00"
+      }
+    ],
+    "DocSubject": "개발요청서명",
+    "Contents": "추가업무내용",
+    "StartDt": "개발시작일자",
+    "EndDt": "개발종료일자",
+    "EmpNo": "담당자(행번)",
+    "DocEmpStatus": "등록01, 수정02",
+    "OrderDoc": {
+      "JobTeamCd": "업무지시서발행코드",
+      "DocNo": "발행근거(01대내문서-SR문서번호)",
+      "EndPlanDt": "처리기한(개발종료일 세팅)",
+      "Referencor": [
+        {
+          "EmpNo": "123456",
+          "EmpStatus": "등록01,삭제00"
+        }
+      ],
+      "Developer": [
+        {
+          "SeqNo": "일련번호",
+          "EmpNo": "123456",
+          "EmpStatus": "등록01,삭제00"
+        }
+      ],
+      "EmpNo": "담당자(행번)",
+      "DocEmpStatus": "등록01, 수정02"
+    }
+  }
+}
+
+
+-- 개발요청서
+{"SrDevReqNo":"SR2024-000001SD-0011","RequestDoc":{"DocType":"01","DocNo":"SR2024-000001","ReqDeptCd":"0091","ReqEmpNo":"221021","DocSubject":"2024-08-28/형상개발테스트","ReqDocNo":"SR2024-000001","BizManager":[{"EmpNo":"203018","EmpStatus":"00"},{"EmpNo":"219091","EmpStatus":"01"}],"RecvDept":[{"SeqNo":"01","RecvDeptCd":"0091001"}],"JobCd":"00050","ManageType":"04","DiffcultyLevel":"02","RequestType":"22","Contents":"2024-08-28/형상개발테스트\r\n","StartDt":"2024/08/28","EndDt":"2024/09/28","EmpNo":"219091","DocEmpStatus":"01","OrderDoc":{"JobTeamCd":"06","DocNo":"SR2024-000001","EndPlanDt":"2024/09/28","Referencor":[{"EmpNo":"219091","EmpStatus":"01"}],"Developer":[{"SeqNo":"01","EmpNo":"219091","EmpStatus":"01"},{"SeqNo":"02","EmpNo":"220003","EmpStatus":"01"},{"SeqNo":"03","EmpNo":"203018","EmpStatus":"01"},{"SeqNo":"04","EmpNo":"211082","EmpStatus":"00"}],"EmpNo":"219091","DocEmpStatus":"01"}}}
+
+-- 담당자변경
+{"SrDevReqNo":"SR2024-000001SD-0011","RequestDoc":{"RequestDocNo":"요청-IT기획부-2024-0002","BizManager":[{"EmpNo":"203018","EmpStatus":"00"},{"EmpNo":"219091","EmpStatus":"01"}],"EmpNo":"219091","DocEmpStatus":"02","OrderDoc":{"OrderDocNo":"지시-도시군금고-2024-0021","EmpNo":"219091","DocEmpStatus":"02","Referencor":[{"EmpNo":"219091","EmpStatus":"01"}],"Developer":[{"SeqNo":"01","EmpNo":"219091","EmpStatus":"01"},{"SeqNo":"02","EmpNo":"220003","EmpStatus":"01"},{"SeqNo":"03","EmpNo":"203018","EmpStatus":"00"},{"SeqNo":"04","EmpNo":"211082","EmpStatus":"00"}]}}}
+
+-- 개발일정변경
+{"SrDevReqNo":"SR2024-000001SD-0011","RequestDoc":{"RequestDocNo":"요청-IT기획부-2024-0003","StartDt":"2024/08/28","EndDt":"2024/09/30","EmpNo":"219091","DocEmpStatus":"02"}}
+
+
+{
+"SrDevReqNo":"SR2024-000001SD-0011",
+"RequestDoc":
+{"RequestDocNo":"요청-IT기획부-2024-0002",
+ "BizManager":
+ [
+ {"EmpNo":"203018","EmpStatus":"00"},
+ {"EmpNo":"219091","EmpStatus":"01"}
+ ],
+ "EmpNo":"219091",
+ "DocEmpStatus":"02",
+ "OrderDoc":
+ {
+ "OrderDocNo":"지시-도시군금고-2024-0021",
+ "EmpNo":"219091",
+ "DocEmpStatus":"02",
+ "Referencor":
+ [
+ {"EmpNo":"219091","EmpStatus":"01"}
+ ],
+ "Developer":
+ [
+ {"SeqNo":"01","EmpNo":"219091","EmpStatus":"01"},
+ {"SeqNo":"02","EmpNo":"220003","EmpStatus":"01"},
+ {"SeqNo":"03","EmpNo":"203018","EmpStatus":"00"},
+ {"SeqNo":"04","EmpNo":"211082","EmpStatus":"00"}]}}}
+ 
+ 
+
+배포이력
+
+https://dsrs.jbbank.co.kr/srs/v1/applyResult
+https://192.168.156.64:8081/srs/v1/applyResult
+
+
+
+{"ApplyNo":"202404000002","ApplyReqDt":"2024-08-30 09:15:30","CompleteDt":"2024-08-30 09:50:55","EmpNo":"219091","DocList":[{"SrDevReqNo":"SR2024-000001SD-0001","RequestDocNo":"요청-수신추진부-2024-0130'","OrderDocNo":"지시-종합수익관리-2024-0010"}]}
+
+{"ApplyNo":"202404000003","ApplyReqDt":"2024-08-30 09:15:30","CompleteDt":"2024-08-30 09:50:55","EmpNo":"강승구","DocList":[{"SrDevReqNo":"SR2024-000001SD-0017","RequestDocNo":"요청-IT기획부-2024-0017","OrderDocNo":"지시-방카슈랑스-2024-0020"}]}
+{"ApplyNo":"202404000004","ApplyReqDt":"2024-08-30 09:25:50","CompleteDt":"2024-08-30 10:10:55","EmpNo":"안재용","DocList":[{"SrDevReqNo":"SR2024-000001SD-0017","RequestDocNo":"요청-IT기획부-2024-0017","OrderDocNo":"지시-방카슈랑스-2024-0020"}]}
+{"ApplyNo":"202404000005","ApplyReqDt":"2024-08-30 09:20:30","CompleteDt":"2024-08-30 10:05:10","EmpNo":"424082","DocList":[{"SrDevReqNo":"SR2024-000026SD-0001","RequestDocNo":"요청-카드-청구[VBL]-2024-0001","OrderDocNo":"지시-자동이체-2024-0009"}]}
+{"ApplyNo":"202404000006","ApplyReqDt":"2024-08-30 09:25:50","CompleteDt":"2024-08-30 10:15:25","EmpNo":"424019","DocList":[{"SrDevReqNo":"SR2024-000026SD-0001","RequestDocNo":"요청-카드-청구[VBL]-2024-0001","OrderDocNo":"지시-자동이체-2024-0009"}]}
+
+{"ApplyNo":"202404000007","ApplyReqDt":"2024-08-30 10:00:45","CompleteDt":"2024-08-30 10:15:10","EmpNo":"424082","DocList":[{"SrDevReqNo":"SR2024-000026SD-0001","RequestDocNo":"요청-단위업무-법인카드관리[UVC]-2024-0001","OrderDocNo":"지시-방카슈랑스-2024-0022"}]}
+{"ApplyNo":"202404000008","ApplyReqDt":"2024-08-30 10:30:50","CompleteDt":"2024-08-30 10:40:25","EmpNo":"220003","DocList":[{"SrDevReqNo":"SR2024-000026SD-0001","RequestDocNo":"요청-대외기관-2024-0006","OrderDocNo":"지시-방카슈랑스-2024-0021"}]}
+
+
+
+java Http_Call http://scm.jbbank.co.kr:12311/webPage/srlink/Response_CC_Result.jsp?acptno=202404005921 ecamscall.log
+java Http_Call 192.168.11.65:12311/webPage/srlink/Response_CC_Result.jsp?acptno=202404005921 POST ecamscall.log
+
+
+
+select * from cmr1012 where cr_orderid in(select cc_orderid from cmc0420 a, cmc0400 b where a.cc_reqid = b.cc_reqid and b.cc_doctype ='99')
+
+
+/*  SR에서 등록한 ID로 적용신청했는지 여부 찾기
+select cc_srreqid from cmc0400 where cc_reqid in(select cc_reqid from cmc0420 where cc_orderid = (select cr_orderid from cmr1012 where cr_acptno ='202404005927'))
+select count(*) from cmc0400 where cc_reqid in(select cc_reqid from cmc0420 where cc_orderid = (select cr_orderid from cmr1012 where cr_acptno ='202404005927'))
+*/
+
+
+/* 테스트 데이터 지우기 */
+delete from cmc0450 where cc_orderid in(select cc_orderid from cmc0420 a, cmc0400 b where a.cc_reqid = b.cc_reqid and b.cc_srreqid is not null)
+select *  from cmc0450 where cc_orderid in(select cc_orderid from cmc0420 a, cmc0400 b where a.cc_reqid = b.cc_reqid and b.cc_srreqid is not null);
+
+delete from cmc0420 where cc_reqid in(select cc_reqid from cmc0400 where cc_srreqid is not null);
+select * from cmc0420 where cc_reqid in(select cc_reqid from cmc0400 where cc_srreqid is not null);
+
+delete from cmc0401 where cc_reqid in(select cc_reqid from cmc0400 where cc_srreqid is not null);
+select * from cmc0401 where cc_reqid in(select cc_reqid from cmc0400 where cc_srreqid is not null);
+
+delete from cmc0410 where cc_reqid in(select cc_reqid from cmc0400 where cc_srreqid is not null);
+select * from cmc0410 where cc_reqid in(select cc_reqid from cmc0400 where cc_srreqid is not null);
+
+delete from cmc0400 where cc_srreqid is not null;
+
+
+/* 보완 필요 */
+신청 진행중인 업무지시서가 있는데 종료로 오는 경우?
+SR연계 없이 현재 진행중인 업무지시서 어케함?
+*/
+
+
+
+
+
+
+API 기능 케이스
+SR -> 형상
+1. 개발요청서등록 /외주개발요청서 등록
+2. 개발기간 변경
+3. 담당자변경
+4. 요청서 종료(업무지시서 포함)
+5. 형상 코드정보 제공
+6. 형상 업무정보 제공
+
+
+형상 -> SR
+1. 배포완료시  SR시스템 정보 제공
+
+
+
+
+기다리다 안오셔서 메세지 남깁니다.
+json 데이터중 중 업무난이도(DifficultyLevel) 오타가 있어요.
+DiffcultyLevel -> DifficultyLevel i가 하나 빠져있어요.
+수정부탁드립니다~
+
+
+
+
+SRRestApi.java  
+.업무지시서 상세 내용 표기 수정    2611
+
+
+select * from cmc0420 where cc_reqid = '요청-디지털플랫폼부-2024-0298'
+Http_Call2 %s:9241/devonmgt/transstage.jsp 'xml' '%s'
+java Http_Call %s:5290/IWorksResourceList.jsp 'id=%s' %s
+
+
+/iManager/igate/configurationManagerRequest.jsp 'dataType=MSGINFO&exeType=export&dataPK=FDCBSBMB_BMB02315011_I' /sw/ecams/bin/tmp//202404006787.21.192.168.35.128.10.result1 2>/sw/ecams/bin/tmp//202404006787.21.192.168.35.128.10.err
+ 
+java Http_Call 192.168.11.65:12311/webPage/srlink/Response_CC_Result.jsp?acptno=202404005927
+
+
+
+http://192.168.156.64:8081/srs/v1/applyResult
+
+SRRestApi callSRResult= ACPTNO[202404005927{"ApplyNo":"202404005927","ApplyReqDt":"2024-08-28 09:2840","CompleteDt":"2024-08-28 09:3628","EmpNo":"219091","DocList":[{"SrDevReqNo":"SR2024-000001SD-0001","RequestDocNo":"요청-IT기획부-2024-0016","OrderDocNo":"지시-대여금고-2024-0002"}]}
+
+
+
+java Http_Call 192.168.12.71:18081/srs/v1/applyResult '{"ApplyNo":"202404005927","ApplyReqDt":"2024-08-28 09:2840","CompleteDt":"2024-08-28 09:3628","EmpNo":"219091","DocList":[{"SrDevReqNo":"SR2024-000001SD-0001","RequestDocNo":"요청-IT기획부-2024-0016","OrderDocNo":"지시-대여금고-2024-0002"}]}' /sw/ecams/bin/tmp//192.168.12.71.sr.result1 2>/sw/ecams/bin/tmp//192.168.12.71.sr.result1.err
+
+
+
+select 'FileDown_cmr0025 ' || cr_itemid || ' /sw/ecams/bin/tmp' || (select cm_dirpath from cmm0070 where cm_syscd = cr_syscd and cm_dsncd = cr_dsncd) ||  '/' || cr_rsrcname || ' ' || cr_lstver from cmr0020 where cr_syscd ='90001' and cr_status not in('3','9') and cr_lstver > 0
+
+<<<<<<<<<<<<<< 운영적용 목록 LIST >>>>>>>>>>>>>
+신규파일 : /weblogic/pscm/apps/ecamsweb/webPage/srlink/*  
+
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/com/ecams/service/srlink/SRRestApi.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/com/ecams/service/srlink/SRRestApi.class
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/app/eCmm/Cmm1000.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/app/eCmm/Cmm1000.class 
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/html/app/common/CodeInfoServlet.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/html/app/common/CodeInfoServlet.class
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/app/common/CodeInfo.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/app/common/CodeInfo.class
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/dev/RegistDevRequest.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/RegistDevRequest.js
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/dev/RegistOutSourcingReq.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/RegistOutSourcingReq.js
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/dev/SetOrderList.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/SetOrderList.js
+
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/html/app/eCmr/Cmr0250Servlet.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/html/app/eCmr/Cmr0250Servlet.class 
+cp /weblogic/tscm/apps/ecamsweb/webPage/winpop/PopRequestDetail.jsp /weblogic/pscm/apps/ecamsweb/webPage/winpop/PopRequestDetail.jsp
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/winpop/PopRequestDetail.js /weblogic/tscm/apps/ecamsweb/js/ecams/winpop/PopRequestDetail.js
+cp /weblogic/tscm/apps/ecamsweb/webPage/winpop/PopOutSourcingDetail.jsp /weblogic/pscm/apps/ecamsweb/webPage/winpop/PopOutSourcingDetail.jsp
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/administrator/UserInfo.js /weblogic/pscm/apps/ecamsweb/js/ecams/administrator/UserInfo.js
+
+
+<<<<<<<<<<<<<< 테스트 데이터 지우기 >>>>>>>>>>>>>
+delete from cmc0450 where cc_orderid in(select cc_orderid from cmc0420 a, cmc0400 b where a.cc_reqid = b.cc_reqid and b.cc_srreqid is not null)
+select *  from cmc0450 where cc_orderid in(select cc_orderid from cmc0420 a, cmc0400 b where a.cc_reqid = b.cc_reqid and b.cc_srreqid is not null);
+
+delete from cmc0420 where cc_reqid in(select cc_reqid from cmc0400 where cc_srreqid is not null);
+select * from cmc0420 where cc_reqid in(select cc_reqid from cmc0400 where cc_srreqid is not null);
+
+delete from cmc0401 where cc_reqid in(select cc_reqid from cmc0400 where cc_srreqid is not null);
+select * from cmc0401 where cc_reqid in(select cc_reqid from cmc0400 where cc_srreqid is not null);
+
+delete from cmc0410 where cc_reqid in(select cc_reqid from cmc0400 where cc_srreqid is not null);
+select * from cmc0410 where cc_reqid in(select cc_reqid from cmc0400 where cc_srreqid is not null);
+
+delete from cmc0400 where cc_srreqid is not null;
+
+
+[SR서버정보]  https://192.168.156.64:8081/srs/v1/applyResult
+개발 192.168.156.64:8081
+운영 192.168.12.70:18081 192.168.12.71:18081 192.168.12.72:18081
+
+curl 192.168.12.71:18081/srs/v1/applyResult
+java Http_Call http://scm.jbbank.co.kr:12311/webPage/srlink/Response_CC_Result.jsp?acptno=202404005921 ecamscall.log
+
+
+
+
+java Http_Call 192.168.11.65:12311/webPage/srlink/Response_CC_Result.jsp?acptno=202404005927
+
+
+[작업순서]
+1. tscmadm의 개발된 소스를 pscmadm으로 Copy (소요시간 10초)
+2. pscmadm  Weblogic restart!          (소요시간 15초)
+3. 환경설정
+   관리자>환경설정>작업서버>SR 계정수정: 192.168.11.65:12311 > 192.168.11.65:12301
+   
+작업목록
+<<<<<<<<<<<<<< 운영적용 목록 LIST >>>>>>>>>>>>>
+신규파일 : /weblogic/pscm/apps/ecamsweb/webPage/srlink/*  
+
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/com/ecams/service/srlink/SRRestApi.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/com/ecams/service/srlink/SRRestApi.class
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/app/eCmm/Cmm1000.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/app/eCmm/Cmm1000.class 
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/html/app/common/CodeInfoServlet.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/html/app/common/CodeInfoServlet.class
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/app/common/CodeInfo.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/app/common/CodeInfo.class
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/dev/RegistDevRequest.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/RegistDevRequest.js
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/dev/RegistOutSourcingReq.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/RegistOutSourcingReq.js
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/dev/SetOrderList.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/SetOrderList.js
+
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/html/app/eCmr/Cmr0250Servlet.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/html/app/eCmr/Cmr0250Servlet.class 
+cp /weblogic/tscm/apps/ecamsweb/webPage/winpop/PopRequestDetail.jsp /weblogic/pscm/apps/ecamsweb/webPage/winpop/PopRequestDetail.jsp
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/winpop/PopRequestDetail.js /weblogic/pscm/apps/ecamsweb/js/ecams/winpop/PopRequestDetail.js
+cp /weblogic/tscm/apps/ecamsweb/webPage/winpop/PopOutSourcingDetail.jsp /weblogic/pscm/apps/ecamsweb/webPage/winpop/PopOutSourcingDetail.jsp
+cp /weblogic/tscm/apps/ecamsweb/webPage/winpop/PopDevRequestDetail.jsp /weblogic/pscm/apps/ecamsweb/webPage/winpop/PopDevRequestDetail.jsp
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/administrator/UserInfo.js /weblogic/pscm/apps/ecamsweb/js/ecams/administrator/UserInfo.js
+
+코드정보 : 대구분 SROPEN 
+        해당일 이전 : 형상관리 기능 활성화(개발요청/외주개발/작업지시서)
+        해당일 부터 : 형상관리 기능 비활성화(개발요청/외주개발/작업지시서)
+
+
+
+logtail |grep 'SR Interface Call Result'
+
+192.168.156.64:8081
+192.168.12.70:18081
+
+
+
+select cc_detailsayu, replace(cc_detailsayu,'？',chr(13) || chr(10)) from cmc0400 where cc_reqid ='요청-IT기획부-2024-0034'
+
+
+cp  /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/com/ecams/service/srlink/SRRestApi.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/com/ecams/service/srlink/SRRestApi.class.20241016
+cp /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/app/eCmm/Cmm1000.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/app/eCmm/Cmm1000.class.20241016
+cp /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/html/app/common/CodeInfoServlet.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/html/app/common/CodeInfoServlet.class.20241016
+cp  /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/app/common/CodeInfo.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/app/common/CodeInfo.class.20241016
+cp  /weblogic/pscm/apps/ecamsweb/js/ecams/dev/RegistDevRequest.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/RegistDevRequest.js.20241016
+cp /weblogic/pscm/apps/ecamsweb/js/ecams/dev/RegistOutSourcingReq.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/RegistOutSourcingReq.js.20241016
+cp  /weblogic/pscm/apps/ecamsweb/js/ecams/dev/SetOrderList.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/SetOrderList.js.20241016
+
+cp /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/html/app/eCmr/Cmr0250Servlet.class  /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/html/app/eCmr/Cmr0250Servlet.class.20241016
+cp  /weblogic/pscm/apps/ecamsweb/webPage/winpop/PopRequestDetail.jsp /weblogic/pscm/apps/ecamsweb/webPage/winpop/PopRequestDetail.jsp.20241016
+cp /weblogic/pscm/apps/ecamsweb/js/ecams/winpop/PopRequestDetail.js /weblogic/pscm/apps/ecamsweb/js/ecams/winpop/PopRequestDetail.js.20241016
+cp  /weblogic/pscm/apps/ecamsweb/webPage/winpop/PopOutSourcingDetail.jsp /weblogic/pscm/apps/ecamsweb/webPage/winpop/PopOutSourcingDetail.jsp.2041016
+cp  /weblogic/pscm/apps/ecamsweb/webPage/winpop/PopDevRequestDetail.jsp /weblogic/pscm/apps/ecamsweb/webPage/winpop/PopDevRequestDetail.jsp.20241016
+cp  /weblogic/pscm/apps/ecamsweb/js/ecams/administrator/UserInfo.js /weblogic/pscm/apps/ecamsweb/js/ecams/administrator/UserInfo.js.20241016
+
+
+
+
+2차 적용
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/com/ecams/service/srlink/SRRestApi.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/com/ecams/service/srlink/SRRestApi.class
+
+
+
+
+	getSelectedVal('cboConType').cm_micode
+	cboConTypeChange
+	
+	
+	https://cis.jbbank.co.kr/cis/sso/bizSvtLogin?SysDiv=SR&RedirectUrl=/p/request/SR2025-000015SD-0001
+	
+	
+	
+	
+	
+	
+	
+2025/01/13
+
+D:\ecams\html5_workspace(20230223)\jbbank_real_html5\WebContent\js\ecams\dev\
+RegistDevRequest.js
+RegistOutSourcingReq.js
+SetOrderList.js
+
+D:\ecams\html5_workspace(20230223)\jbbank_real_html5\WebContent\webPage\winpop\
+PopProgDetail.jsp
+
+PopProgDetail.js
+
+D:\ecams\html5_workspace(20230223)\jbbank_real_html5\WebContent\WEB-INF\classes\app\eCmr\
+Cmr0250.class
+
+D:\ecams\html5_workspace(20230223)\jbbank_real_html5\WebContent\WEB-INF\classes\app\eCmc\
+Cmc0500.class
+Cmc0400.class
+
+
+D:\ecams\html5_workspace(20230223)\jbbank_real_html5\WebContent\webPage\tab\sourceview\
+SourceViewTab.jsp
+
+D:\ecams\html5_workspace(20230223)\jbbank_real_html5\WebContent\js\ecams\tab\sourceview
+SourceViewTab.js
+
+D:\ecams\html5_workspace(20230223)\jbbank_real_html5\WebContent\js\ecams\winpop\
+PopRequestSourceView.js
+
+D:\ecams\html5_workspace(20230223)\jbbank_real_html5\WebContent\js\ecams\dev\
+CheckOutListReport.js
+
+
+
+select * from cmm0020 where cm_macode ='SROPEN' 
+update cmm0020 set cm_micode = '20250112'  where cm_macode ='SROPEN' and cm_micode ='20250114'
+update cmm0020 set cm_micode = '20250114'  where cm_macode ='SROPEN' and cm_micode ='20250112'
+	
+	
+	
+PopRequestSourceView.jsp  
+그리드에 경로나올수 있는지 확인	
+
+
+
+
+#백업
+cp ./apps/ecamsweb/js/ecams/dev/RegistDevRequest.js ./apps/ecamsweb/js/ecams/dev/RegistDevRequest.js.20250113
+cp ./apps/ecamsweb/js/ecams/dev/RegistOutSourcingReq.js ./apps/ecamsweb/js/ecams/dev/RegistOutSourcingReq.js.20250113
+cp ./apps/ecamsweb/js/ecams/dev/SetOrderList.js ./apps/ecamsweb/js/ecams/dev/SetOrderList.js.20250113
+cp ./apps/ecamsweb/webPage/winpop/PopProgDetail.jsp ./apps/ecamsweb/webPage/winpop/PopProgDetail.jsp.20250113
+cp ./apps/ecamsweb/js/ecams/winpop/PopProgDetail.js ./apps/ecamsweb/js/ecams/winpop/PopProgDetail.js.20250113
+cp ./apps/ecamsweb/WEB-INF/classes/app/eCmr/Cmr0250.class ./apps/ecamsweb/WEB-INF/classes/app/eCmr/Cmr0250.class.20250113
+cp ./apps/ecamsweb/WEB-INF/classes/app/eCmc/Cmc0500.class ./apps/ecamsweb/WEB-INF/classes/app/eCmc/Cmc0500.class.20250113
+cp ./apps/ecamsweb/WEB-INF/classes/app/eCmc/Cmc0400.class ./apps/ecamsweb/WEB-INF/classes/app/eCmc/Cmc0400.class.20250113
+cp ./apps/ecamsweb/webPage/tab/sourceview/SourceViewTab.jsp ./apps/ecamsweb/webPage/tab/sourceview/SourceViewTab.jsp.20250113
+cp ./apps/ecamsweb/js/ecams/tab/sourceview/SourceViewTab.js ./apps/ecamsweb/js/ecams/tab/sourceview/SourceViewTab.js.20250113
+cp ./apps/ecamsweb/js/ecams/winpop/PopRequestSourceView.js ./apps/ecamsweb/js/ecams/winpop/PopRequestSourceView.js.20250113
+cp ./apps/ecamsweb/js/ecams/dev/CheckOutListReport.js ./apps/ecamsweb/js/ecams/dev/CheckOutListReport.js.20250113
+
+
+#적용
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/dev/RegistDevRequest.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/RegistDevRequest.js
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/dev/RegistOutSourcingReq.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/RegistOutSourcingReq.js
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/dev/SetOrderList.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/SetOrderList.js
+cp /weblogic/tscm/apps/ecamsweb/webPage/winpop/PopProgDetail.jsp /weblogic/pscm/apps/ecamsweb/webPage/winpop/PopProgDetail.jsp
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/winpop/PopProgDetail.js /weblogic/pscm/apps/ecamsweb/js/ecams/winpop/PopProgDetail.js
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/app/eCmr/Cmr0250.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/app/eCmr/Cmr0250.class
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/app/eCmc/Cmc0500.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/app/eCmc/Cmc0500.class
+cp /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/app/eCmc/Cmc0400.class /weblogic/pscm/apps/ecamsweb/WEB-INF/classes/app/eCmc/Cmc0400.class
+cp /weblogic/tscm/apps/ecamsweb/webPage/tab/sourceview/SourceViewTab.jsp /weblogic/pscm/apps/ecamsweb/webPage/tab/sourceview/SourceViewTab.jsp
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/tab/sourceview/SourceViewTab.js /weblogic/pscm/apps/ecamsweb/js/ecams/tab/sourceview/SourceViewTab.js
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/winpop/PopRequestSourceView.js /weblogic/pscm/apps/ecamsweb/js/ecams/winpop/PopRequestSourceView.js
+cp /weblogic/tscm/apps/ecamsweb/js/ecams/dev/CheckOutListReport.js /weblogic/pscm/apps/ecamsweb/js/ecams/dev/CheckOutListReport.js
+
+
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------
+
+cmc0401 – 업무요청서의 주관부서 및 담당자 정보가 저장됩니다.
+cmc0421 – 작업지시서에 대한 제3자(외주) 담당자 정보가 저장됩니다.
+cmc0450 – 작업지시서에 대한 개발담당자 정보가 저장됩니다.
+ECAMS_ALM_REQ – 개발요청 관련 정보를 외부 시스템과 연동하는 테이블입니다.
+
+
+
+## 전북은행 DB작업 관련 ##
+alter table "CMC0400" add(CC_TESTREQ_YN VARCHAR2(1) DEFAULT 'X');
+COMMENT ON COLUMN "CMC0400"."CC_TESTREQ_YN" IS '테스트 요청 여부(Y/N)';
+
+alter table "CMC0400" add(CC_TESTPASS_CD VARCHAR2(2));
+COMMENT ON COLUMN "CMC0400"."CC_TESTPASS_CD" IS '테스트생략사유(코드정보:PASSINGTYPE)';
+
+alter table cmm0022
+add(cm_bldname(150));
+COMMENT ON COLUMN "CMM0022"."cm_bldname" IS '스크립트명';
+
+
+// 기 데이터 컬럼 초기화
+update cmm0400 set CC_TESTREQ_YN = 'N' ;
+
+
+INSERT INTO "CMM0020" (CM_MACODE, CM_MICODE, CM_CODENAME, CM_USEYN) VALUES ('PASSTYPE', '****', 'SR시스템테스트생략코드', 'Y');
+INSERT INTO "CMM0020" (CM_MACODE, CM_MICODE, CM_CODENAME, CM_USEYN) VALUES ('PASSTYPE', '00', '해당없음', 'Y');
+INSERT INTO "CMM0020" (CM_MACODE, CM_MICODE, CM_CODENAME, CM_USEYN) VALUES ('PASSTYPE', '01', '단순변경', 'Y');
+INSERT INTO "CMM0020" (CM_MACODE, CM_MICODE, CM_CODENAME, CM_USEYN) VALUES ('PASSTYPE', '02', '긴급적용', 'Y');
+INSERT INTO "CMM0020" (CM_MACODE, CM_MICODE, CM_CODENAME, CM_USEYN) VALUES ('PASSTYPE', '03', '프로그램개발(기타)', 'Y');
+
+
+1. 작업지시서 여러개 선택했을때 Confirm_Info 에서 오류나는 부분 수정
+  ApplyRequest.js 
+  -> function confCall(GbnCd){
+
+<<<<<<<<<<이 부분을 2번으로 교체 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+	tmpPrjNo = '';
+	for(var y=0; y<tmpArr.length; y++) {
+		if (tmpPrjNo.length > 0) {
+			tmpPrjNo = tmpPrjNo + "," + tmpArr[y].CC_ORDERID;
+		} else tmpPrjNo = tmpArr[y].CC_ORDERID;
+	
+	}
+
+<2번<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+  var seen = {};
+  tmpPrjNo = '';
+
+  for (var y = 0; y < tmpArr.length; y++) {
+      // CC_ORDERID가 숫자든 문자열이든 문자열로 변환
+      var id = String(tmpArr[y].CC_ORDERID);
+
+      // 이미 추가된 id면 스킵
+      if (Object.prototype.hasOwnProperty.call(seen, id)) continue;
+
+      seen[id] = true;
+
+      // tmpPrjNo에 콤마로 붙이기
+      if (tmpPrjNo.length > 0) {
+          tmpPrjNo = tmpPrjNo + ',' + id;
+      } else {
+          tmpPrjNo = id;
+      }
+  }
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+
+2. 취약성 관련
+MenuList.java chkMenuSecu() 
+  -> 쿼리 파라미터 1개 뿐이 없음
+Common.js
+   ->
+   if (pathname.indexOf('/webPage/winpop') < 0 && pathname.indexOf('/webPage/modal') < 0 && pathname.indexOf('/webPage/tab') < 0 &&
+        pathname.indexOf('/webPage/login') < 0 && pathname.indexOf('/webPage/main') < 0 && pathname.indexOf('/webPage/') >= 0) {
+        var data = new Object();
+        data = {
+                userId : userId,
+              pathname : pathname,
+           requestType : 'CHECK_SECU'
+        }
+        // Corrected servlet path for security check
+        ajaxReturnData = ajaxCallWithJson('/webPage/main/eCAMSBaseServlet', data, 'json');
+        if(ajaxReturnData != null && ajaxReturnData != '' && ajaxReturnData == 'OK') {
+        } else {
+            dialog.alert('로그인정보가 유효하지 않습니다.\n다시 로그인하여 주시기 바랍니다.');
+            window.top.location.replace('/webPage/login/ecamsLogin.jsp');
+        }
+    }
+eCAMSBaseServlet.java
+    private String getSessionUserData(JsonElement jsonElement, HttpServletRequest request) throws SQLException, Exception {
+        TokenService tokenService = new TokenService();
+        //LoginManager loginManager = LoginManager.getInstance();
+        UserInfo userinfo = new UserInfo();
+        //String sessionID = ecMASMainDto.getSessionID();
+
+        HashMap<String, String> userInfoMap = new HashMap<String, String>();
+
+        String UserID = "";
+        String jwtStr = tokenService.getToken(request);
+
+        // If there is no JWT token in the request, mark the user as unauthenticated without creating a new token
+        if (null == jwtStr || "".equals(jwtStr)) {
+            userInfoMap.put("userId", "undefined");
+        } else {
+            try {
+                if (tokenService.validateToken(jwtStr)) {
+                    UserID = tokenService.getUserId(jwtStr);
+                    if (null == UserID || "".equals(UserID)) {
+                        userInfoMap.put("userId",   "undefined");
+                    } else {
+                        userInfoMap.put("userId",   UserID);
+                    }
+                } else {
+                    userInfoMap.put("userId",   "undefined");
+                }
+            } catch (ExpiredJwtException e) {
+                userInfoMap.put("userId",   "undefined");
+            }
+        }
+
+        if (null != jwtStr && !"".equals(jwtStr) && null != UserID && !"".equals(UserID)) {
+            userInfoMap.put("token", jwtStr);
+            HashMap<String,String> userData = (HashMap<String, String>) userinfo.getUserInfo(UserID)[0];
+            if (userData != null) {
+                userInfoMap.put("position", userData.get("cm_position"));
+                userInfoMap.put("userName", userData.get("cm_username"));
+                userInfoMap.put("deptName",userData.get("teamname"));
+                userInfoMap.put("deptCd",userData.get("cm_project"));
+
+                if ("1".equals(userData.get("cm_admin"))) {
+                    userInfoMap.put("adminYN",  "true");
+                } else {
+                    userInfoMap.put("adminYN",  "false");
+                }
+                
+                if (null == userData.get("cm_manid") || "".equals(userData.get("cm_manid"))) {
+                    userInfoMap.put("manYn",  "N");
+                } else {
+                    userInfoMap.put("manYn",  userData.get("cm_manid"));
+                }
+                userInfoMap.put("rgtcd",userData.get("rgtcd"));
+            } else {
+                userInfoMap.put("position", "");
+            }
+            userData = null;
+        }
+        return ParsingCommon.toJson(userInfoMap);
+    }
+
+
+
+
+
+빌드릴리즈정보 오류
+TypeConnectionTab.js
+
+
+
+
+'{"SrDevReqNo":"SR2025-001547SD-0001",
+"SmRequestDoc":{"SmRequestDocNo":"요청-여신-2025-0071",
+         "Contents":"1. 전산개발목적송달료 환급금 계좌 가상계좌 지정 운영(전산화)을 통한 업무량 경감 및 인력 효율화",
+        "StartDt":"2025/05/27",
+        "EndDt":"2025/06/13",
+        "EmpNo":"205003",
+        "DocEmpStatus":"01",
+        "BizManager":[{"EmpNo":"216022","EmpStatus":"01"}],
+        "OrderDoc":{"OrderDocNo":"지시-여신-2025-0265",
+                "EndPlanDt":"2025/06/13",
+                "Referencor":[{"EmpNo":"223059","EmpStatus":"01"},
+                        {"EmpNo":"490247","EmpStatus":"01"},
+		{"EmpNo":"999999","EmpStatus":"00"}],
+                "Developer":[{"SeqNo":"01","EmpNo":"490249","EmpStatus":"01"},
+                       {"SeqNo":"02","EmpNo":"490247","EmpStatus":"01"}],
+                "EmpNo":"490247",
+                "DocEmpStatus":"01"
+                }
+            }
+       },
+"TestRequsetYn":"N",
+"TestPassingCd":"00"
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+'{"SrDevReqNo":"SR2025-002266SD-0004",
+"RequestDoc":{"DocType":"01",
+              "DocNo":"SR2025-002266",
+              "ReqDeptCd":"0903",
+              "ReqEmpNo":"219087",
+              "DocSubject":"JB STAY ON 전용페이지 공과금 납부내역 조회 개발 요청",
+              "ReqDocNo":"SR2025-002266",
+              "BizManager":[{"EmpNo":"219087","EmpStatus":"01"}],
+              "RecvDept":[{"SeqNo":"01","RecvDeptCd":"0093004"}],
+              "JobCd":"BNT",
+              "ManageType":"01",
+              "DifficultyLevel":"03",
+              "RequestType":"52",
+              "Contents":"1. 전산개발목적JB STAY ON 통장 전용페이지 내 공과금 전월 납부내역 조회값 노출",
+              "StartDt":"2025/07/21",
+              "EndDt":"2025/07/31",
+              "EmpNo":"202019",
+              "DocEmpStatus":"01",
+              "OrderDoc":{"JobTeamCd":"08",
+                          "DocNo":"SR2025-002266",
+                          "EndPlanDt":"2025/07/31",
+                          "Referencor":[{"EmpNo":"208004","EmpStatus":"01"}],
+                          "Developer":[{"SeqNo":"01","EmpNo":"224071","EmpStatus":"01"}],
+                          "EmpNo":"202019",
+                          "DocEmpStatus":"01"}
+              }
+      },
+"TestRequsetYn":"N",
+"TestPassingCd":"00"
+}
+
+
+'{"SrDevReqNo":"SR2025-001547SD-0001",
+"SmRequestDoc":{"SmRequestDocNo":"요청-여신-2025-0071",
+                "Contents":"1. 전산개발목적송달료 환급금 계좌 가상계좌 지정 운영(전산화)을 통한 업무량 경감",
+        "StartDt":"2025/05/27",
+        "EndDt":"2025/06/13",
+        "EmpNo":"205003",
+        "DocEmpStatus":"01",
+        "BizManager":[{"EmpNo":"216022","EmpStatus":"01"}],
+        "OrderDoc":{"OrderDocNo":"지시-여신-2025-0265",
+                "EndPlanDt":"2025/06/13",
+                "Referencor":[{"EmpNo":"223059","EmpStatus":"01"},
+                        {"EmpNo":"490247","EmpStatus":"01"}],
+                "Developer":[{"SeqNo":"01","EmpNo":"490249","EmpStatus":"01"},
+                       {"SeqNo":"02","EmpNo":"490247","EmpStatus":"01"}],
+                "EmpNo":"490247",
+                "DocEmpStatus":"01"
+                }
+            }
+       },
+"TestRequsetYn":"N",
+"TestPassingCd":"00"
+}
+
+
+
+
+
+-브룩스 아드레날린 GTS24
+-써코니 가이드 18
+-뉴발란스 프레쉬폼 860
+-아식스 젤카야노
+
+
+
+
+
+set ORACLE_HOME=D:\app\polaris\product\21c\homes\OraDB21Home1
+set PATH=%ORACLE_HOME%\bin;%PATH%
+
+setx ORACLE_HOME "D:\app\polaris\product\21c\dbhomeXE" 
+setx TNS_ADMIN "%ORACLE_HOME%\network\admin"
+setx PATH "%PATH%;%ORACLE_HOME%\bin"
+
+
+
+
+cmr1016
+
+
+
+[ 테스트전담반 ]
+1. /weblogic/tscm/apps/ecamsweb/webPage/winpop/PopRequestDetail.jspPopRequestDetail.jsp
+2. /weblogic/tscm/apps/ecamsweb/js/ecams/winpop/PopRequestDetail.js
+3. /weblogic/tscm/apps/ecamsweb/webPage/tab/request/QATab.jsp
+4. /weblogic/tscm/apps/ecamsweb/js/ecams/tab/request/QATab.js
+5. /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/com/ecams/common/base/HttpCall_New.class
+6. /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/com/ecams/service/srlink/SRRestApi.class
+7. /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/app/eCmr/Cmr0250.class
+8. /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/html/app/eCmr/Cmr0250Servlet.class
+9. /weblogic/tscm/apps/ecamsweb/webPage/srlink/Response_CC_TestResult.jsp
+10. ecams_acct_sysed.pc  (systs 인 경우 sr api호출 추가)
+11. ecams_verfile.pc  (cmm0015. cm_svrusr ip로 호출하도록 변경 https변경 대비)
+
+
+[보고서]
+11. jbbank_real_html5\WebContent\js\ecams\report\PrgChgMemoReport.js
+12. 파일서버에 없음! PrgChgMemoReport.jsp
+13. jbbank_real_html5\src\app\eCmp\Cmp0300.java
+14. jbbank_real_html5\src\html\app\eCmp\Cmp0300Servlet.java
+
+
+[업무지시서 여러개 선택시 결재정보 오류현상]
+유지보수1. /weblogic/tscm/apps/ecamsweb/js/ecams/apply/ApplyRequest.js
+유지보수2. /weblogic/tscm/apps/ecamsweb/WEB-INF/classes/app/eCmr/Confirm_select.class
+
+
+[ISMS-P 관리자페이지 오픈 취약점]
+/weblogic/tscm/apps/ecamsweb/js/ecams/common/common.js
+/weblogic/tscm/apps/ecamsweb/WEB-INF/classes/app/common/MenuList.class
+/weblogic/tscm/apps/ecamsweb/WEB-INF/classes/html/app/main/eCAMSBaseServlet.class
+
+
+[적용요청 업무콤보 기능 추가]
+/weblogic/tscm/apps/ecamsweb/js/ecams/apply/ApplyRequest.js
+/weblogic/tscm/apps/ecamsweb/webPage/apply/ApplyRequest.jsp
+
+
+[빌드릴리즈정보 버그 수정]
+/weblogic/tscm/apps/ecamsweb/js/ecams/tab/buildrelease/TypeRegistrationTab.js
+/weblogic/tscm/apps/ecamsweb/WEB-INF/classes/app/eCmd/Cmd1200.class
+/weblogic/tscm/apps/ecamsweb/WEB-INF/classes/html/app/eCmd/Cmd1200Servlet.class	
+
+
+
+
+
+
+
+
+java Http_Call http://scm.jbbank.co.kr:12301/webPage/srlink/Response_CC_Result.jsp?acptno=202505008360
+java HttpCall_New http://scm.jbbank.co.kr:12301/webPage/srlink/Response_CC_Result.jsp?acptno=202505008360
+
+
+
+
+BLDGBN     BLDCD
+
+
+
+
+Request_CC_Reg.jsp [{"SrDevReqNo":"ST2025-000001SD-0002","RequestDoc":{"DocType":"99","DocNo":"자체발행","ReqDeptCd":"99","ReqEmpNo":"기타","DocSubject":"자체개발 형상연동 테스트(2025-10-13)","ReqDocNo":"자체행","BizManager":[{"EmpNo":"221018","EmpStatus":"01"}],"RecvDept":[{"SeqNo":"01","RecvDeptCd":"0091"}],"JobCd":"00700","ManageType":"01","DifficultyLevel":"04","RequestType":"00","Contents":"1. 전산개발(개선)목적자체개발 형상연동 테스트(2025-10-13)2. 개발(개선)요구사항자체개발 형상연동 테스트(2025-10-13)\r\n자체개발 형상연동 테스트(2025-10-13)\r\n자체개발 형상연동 테스트(2025-10-13)\r\n자체개발 형상연동 테스트(2025-10-13)\r\n3. 기타사항자체개발 형상연동 테스트(2025-10-13)","StartDt":"2025/10/13","EndDt":"2025/10/31","EmpNo":"224017","DocEmpStatus":"01","OrderDoc":{"JobTeamCd":"37","DocNo":"자체발행","EndPlanDt":"2025/10/31","Referencor":[{"EmpNo":"222074","EmpStatus":"01"}],"Developer":[{"SeqNo":"01","EmpNo":"225094","EmpStatus":"01"}],"EmpNo":"224017","DocEmpStatus":"01"}},"TestRequestYn":"Y"}]
+Request_CC_Updt.jsp [{"SrDevReqNo":"ST2025-000001SD-0002","RequestDoc":{"RequestDocNo":"요청-대외기관-2025-0002","BizManager":[{"EmpNo":"221018","EmpStatus":"01"}],"Contents":"1. 전산개발(개선)목적자체개발 형상연동 테스트(2025-10-13)2. 개발(개선)요구사항자체개발 형상연동 테스트(2025-10-13)\r\n자체개발 형상연동 테스트(2025-10-13)\r\n자체개발 형상연동 테스트(2025-10-13)\r\n자체개발 형상연동 테스트(2025-10-13)\r\n3. 기타사항자체개발 형상연동 테스트(2025-10-13)","StartDt":"2025/10/13","EndDt":"2025/10/31","EmpNo":"224017","DocEmpStatus":"01","OrderDoc":{"OrderDocNo":"지시-뉴테크-2025-0042","EndPlanDt":"2025/10/31","EmpNo":"224017","DocEmpStatus":"01","Referencor":[{"EmpNo":"222074","EmpStatus":"01"}],"Developer":[{"SeqNo":"01","EmpNo":"225094","EmpStatus":"01"}]}},"TestRequestYn":"N","TestPassingCd":"02"}]
+
+update cmc0400 set cc_srreqid ='ST2025-000001SD-0002', cc_testreq_yn = 'N', cc_testpass_cd ='02' where   cc_reqid = '요청-대외기관-2025-0002';
+
+[{"SrDevReqNo":"ST2025-000001SD-0002","RequestDoc":{"RequestDocNo":"요청-대외기관-2025-0002","BizManager":[{"EmpNo":"221018","EmpStatus":"01"}],"Contents":"1. 전산개발(개선)목적자체개발 형상연동 테스트(2025-10-13)2. 개발(개선)요구사항자체개발 형상연동 테스트(2025-10-13)\r\n자체개발 형상연동 테스트(2025-10-13)\r\n자체개발 형상연동 테스트(2025-10-13)\r\n자체개발 형상연동 테스트(2025-10-13)\r\n3. 기타사항자체개발 형상연동 테스트(2025-10-13)","StartDt":"2025/10/13","EndDt":"2025/10/31","EmpNo":"224017","DocEmpStatus":"01","OrderDoc":{"OrderDocNo":"지시-뉴테크-2025-0042","EndPlanDt":"2025/10/31","EmpNo":"224017","DocEmpStatus":"01","Referencor":[{"EmpNo":"222074","EmpStatus":"01"}],"Developer":[{"SeqNo":"01","EmpNo":"225094","EmpStatus":"01"}]}},"TestRequestYn":"N","TestPassingCd":"02"}]
+
+
+
+ update cmc0400 set				                              							
+     CC_DEVSTDT='2025/10/13',CC_DEVEDDT='2025/10/31',CC_EDITOR='224017',CC_ETTEAM=null,CC_DEVPERIOD=null,   				
+     CC_DETAILSAYU='1. 전산개발(개선)목적자체개발 형상연동 테스트(2025-10-13)2. 개발(개선)요구사항자체개발 형상연동 테스트(2025-10-13)
+자체개발 형상연동 테스트(2025-10-13)
+자체개발 형상연동 테스트(2025-10-13)
+자체개발 형상연동 테스트(2025-10-13)
+3. 기타사항자체개발 형상연동 테스트(2025-10-13)',CC_ENDPLAN='2025/10/31',CC_SRREQID='ST2025-000001SD-0002',CC_TESTREQ_YN='N',CC_TESTPASS_CD='02'   	
+where CC_REQID = '요청-대외기관-2025-0002'
+
+
+
+
+>>> SERVER [130.9.1.113] 작업처리내용 : [배포 결과]][2025/10/13 08:33:33.350609] <<<
+>>> SERVER [130.9.1.113] 작업처리내용 : [SYSED]
+
+백업성공 [cp -p '/sw/n_web/nsmbdocs_next/src/app/(view)/(smb)/(ads)/P_M_ADS700011_01/page.js' '/sw/srcebkup/2025/10/202504008326/n_web/nsmbdocs_next/src/app/(view)/(smb)/(ads)/P_M_ADS700011_01/page.js']
+
+처리결과 = [0000]
+
+
+>>> SERVER [130.9.1.113] 작업처리내용 : [백업결과] 
+
+-rwxr-x---. 1 prodibs jbb 41583 Sep 30 17:17 /sw/n_web/nsmbdocs_next/src/app/(view)/(smb)/(ads)/P_M_ADS700011_01/page.js
+
+
+
+
+>>> SERVER [130.9.1.113] 작업처리내용 : [SYSED]
+
+컴파일전 CMR1011 생성
+
+처리결과 = [0000]
+
+
+
+
+>>> SERVER [130.9.1.113] 작업처리내용 : [배포 결과]][2025/10/13 08:33:33.350609] <<<
+>>> SERVER [130.9.1.113] 작업처리내용 : [배포 결과]][2025/10/13 08:33:33.350609] <<<
+>>> SERVER [130.9.1.113] 작업처리내용 : [배포 결과]][2025/10/13 08:33:33.350609] <<<
+
+
+
+			select a.cc_srreqid,a.cc_docsubj,              
+			       nvl(a.cc_testreq_yn,'X') cc_testreq_yn, 
+			       a.cc_testpass_cd,a.cc_jobdif,  		     
+			       decode(a.cc_testpass_cd,'',(select cm_codename from cmm0020 where cm_macode='PASSTYPE' and cm_micode=a.cc_testpass_cd)) testpass,  
+			       decode(a.cc_jobdif,'',(select cm_codename from cmm0020 where cm_macode='JOBLEVEL' and cm_micode=a.cc_jobdif)) jobdif  
+			  from cmc0400 a,  			                 
+			       (select x.cc_reqid                      
+			          from cmc0420 x,cmr1012 y              
+			         where y.cr_acptno=?                    
+			           and y.cr_orderid=x.cc_orderid        
+			           and x.cc_reqid is not null           
+			         group by x.cc_reqid) b                 
+			 where b.cc_reqid=a.cc_reqid	                
+			 order by a.cc_srreqid      		            
+			 
+
+
+
+SR검증 : 192.168.156.65:8071
+
+
+
+delete from cmc0400 where cc_reqid ='요청-대외기관-2025-0004';
+delete from cmc0420 where cc_reqid ='요청-대외기관-2025-0004';
+delete from cmc0410 where cc_reqid ='요청-대외기관-2025-0004';
+delete from cmc0450 where cc_orderid ='지시-뉴테크-2025-0045';
+
+
+
+
+java Http_Call 192.168.156.65:8071/srs/ecams/v1/validateResult '{"ApplyNo":"202504008461","ApplyReqDt":"2025-10-15 11:09:29","EmpNo":"224017","DocList":[{"SrDevReqNo":"ST2025-000001SD-0002"}]}' /sw/ecams/bin/tmp//192.168.12.71.sr.result1 2>/sw/ecams/bin/tmp//192.168.12.71.sr.result1.err
+
+
+curl -v --request POST 192.168.156.65:8071/srs/ecams/v1/validationResult --header 'Content-Type: application/json; charset=utf-8' --data-raw '{"ApplyNo":"202504008461","ApplyReqDt":"2025-10-15 11:09:29","EmpNo":"224017","DocList":[{"SrDevReqNo":"ST2025-000001SD-0002"}]}' > ecams.log
+
+
+curl -v --request POST 192.168.156.65:8071/srs/ecams/v1/validationResult
+curl -v --request POST https://demo.jbbank.co.kr/srs/ecams/v1/validationResult
+
+
+
+https://dcis.jbbank.co.kr/cis/sso/bizSvtLogin?SysDiv=DMO&RedirectUrl=/p/TestComplateDetail/ST2025-000001SD-0002
+
+
+
+
+			select distinct (select cc_srreqid from cmc0400 where cc_reqid = b.cc_reqid) cc_srreqid
+			  from cmc0420 b,cmr1012 c                   
+			 where c.cr_acptno=?                         
+			   and c.cr_orderid=b.cc_orderid             
+			   
+			   
+			select a.cc_srreqid,a.cc_docsubj,              
+			       nvl(a.cc_testreq_yn,'X') cc_testreq_yn, 
+			       a.cc_testpass_cd,a.cc_jobdif,  		     
+			       (select cm_codename from cmm0020 where cm_macode ='PASSTYPE' and cm_micode = a.cc_testpass_cd) testpass,
+			       (select cm_codename from cmm0020 where cm_macode ='JOBGRADE' and cm_micode = a.cc_jobdif) jobdif
+			  from cmc0400 a,  			                 
+			       (select x.cc_reqid                      
+			          from cmc0420 x,cmr1012 y              
+			         where y.cr_acptno='202504008461'                  
+			           and y.cr_orderid=x.cc_orderid        
+			           and x.cc_reqid is not null           
+			         group by x.cc_reqid) b                 
+			 where b.cc_reqid=a.cc_reqid	                
+			 order by a.cc_srreqid      		            
+			 
+			 
+			 
+
+java Http_Call http://scm.jbbank.co.kr:12301/webPage/srlink/Response_CC_Result.jsp?acptno=202504008473 POST
+java Http_Call 192.168.11.65:12301/webPage/srlink/Response_CC_TestResult.jsp?acptno=202504008480 POST
+
+
+
+
+select a.cm_bldcd,a.cm_seq,a.cm_cmdname,a.cm_gbncd,a.cm_bldname,b.cm_codename from cmm0022 a, cmm0020 b where b.cm_macode ='BLDCD' and cm_micode = a.cm_bldcd
+
+update cmm0022 a set cm_bldname = (select cm_codename from cmm0020 where cm_macode ='BLDCD' and cm_micode = a.cm_bldcd) where cm_bldname is null;
+
+
+			select b.cm_gbncd, b.cm_bldcd, b.cm_bldname cm_codename    
+			  from cmm0022 b			 							
+			 Group by b.cm_gbncd, b.cm_bldcd, cm_codename 			  
+			 order by b.cm_gbncd, b.cm_bldcd, cm_codename         
+			 
+			 
+			 
+			 select a.cm_bldcd,a.cm_seq,a.cm_cmdname,a.cm_gbncd,a.cm_bldname,b.cm_codename from cmm0022 a, cmm0020 b where b.cm_macode ='BLDCD' and cm_micode = a.cm_bldcd and cm_gbncd ='1'
+			 
+			 
+			 
+			 
+			 			select distinct cc_srreqid 
+						  from cmc0400 a,cmc0420 b,cmr1012 c                   
+						 where c.cr_acptno='2025-04-008549'                         
+						   and c.cr_orderid=b.cc_orderid     
+						   and a.cc_reqid = b.cc_reqid
+						   and a.cc_testreq_yn = 'Y'
+						   
+
+					select count(*) cnt                      
+					  from cmc0400 a, cmc0420 b,cmr1012 c             
+					 where c.cr_acptno='202504008549'                                
+					   and c.cr_orderid=b.cc_orderid   		   
+					   and b.cc_reqid = a.cc_reqid           
+					   and a.cc_srreqid is not null	         
+					   and a.cc_testreq_yn = 'N'             
+											           

@@ -1,0 +1,2 @@
+update cmm0040 set cm_project2=''  where cm_userid = '219091'
+/

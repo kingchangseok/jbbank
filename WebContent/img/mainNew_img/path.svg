@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="26" height="26" viewBox="0 0 26 26">
+    <defs>
+        <filter id="prefix__a" width="100.6%" height="114.5%" x="-.3%" y="-4.6%" filterUnits="objectBoundingBox">
+            <feOffset dy="2" in="SourceAlpha" result="shadowOffsetOuter1"/>
+            <feGaussianBlur in="shadowOffsetOuter1" result="shadowBlurOuter1" stdDeviation="1.5"/>
+            <feColorMatrix in="shadowBlurOuter1" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.1 0"/>
+        </filter>
+        <path id="prefix__b" d="M0 0H1919V76H0z"/>
+    </defs>
+    <g fill="none" fill-rule="evenodd">
+        <path fill="#FFF" d="M0 0H1920V1080H0z" transform="translate(-306 -16)"/>
+        <g>
+            <g fill-rule="nonzero" transform="translate(-306 -16) translate(1)">
+                <use fill="#000" filter="url(#prefix__a)" xlink:href="#prefix__b"/>
+                <use fill="#FFF" xlink:href="#prefix__b"/>
+            </g>
+            <text fill="#3B3B3B" font-family="NotoSansCJKkr-Regular, Noto Sans CJK KR" font-size="13" letter-spacing="-.244" transform="translate(-306 -16) translate(1)">
+                <tspan x="307.284" y="56">등록</tspan>
+            </text>
+            <g>
+                <path d="M0 0L26 0 26 26 0 26z" transform="translate(-306 -16) translate(1) translate(305 16)"/>
+                <path fill="#3B3B3B" fill-rule="nonzero" d="M5.417 4.333V6.5h15.166V4.333H5.417zm0 10.834H9.75v6.5h6.5v-6.5h4.333L13 7.583l-7.583 7.584z" transform="translate(-306 -16) translate(1) translate(305 16)"/>
+            </g>
+        </g>
+    </g>
+</svg>
