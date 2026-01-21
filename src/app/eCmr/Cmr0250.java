@@ -3253,7 +3253,7 @@ public class Cmr0250{
 	                
 	                // 로그 7: .class 검색 결과 요약
 	                if (classFileCount == 0) {
-	                    ecamsLogger.error("[CLASS_NOT_FOUND] ⚠️ No .class files found for " + baseNm);
+	                    ecamsLogger.error("[CLASS_NOT_FOUND] No .class files found for " + baseNm);
 	                } else {
 	                    ecamsLogger.error("[CLASS_SEARCH_END] Total:" + classFileCount + " class files processed");
 	                }
@@ -3430,46 +3430,48 @@ public class Cmr0250{
 	            try{
 	                conn.rollback();
 					ConnectionResource.release(conn);
-	        }catch(Exception ex3){
-	            ecamsLogger.error("## Cmr0250.progCncl_sel() connection release exception ##");
-	            ex3.printStackTrace();
+				}catch(Exception ex3){
+					ecamsLogger.error("## Cmr0250.progCncl_sel() connection release exception ##");
+					ex3.printStackTrace();
+				}
+			}
+	        if (connD != null){
+	            try{
+	                connD.rollback();
+	                ConnectionResource.release(connD);
+	            }catch(Exception ex3){
+	                ecamsLogger.error("## Cmr0250.progCncl_sel() connection release exception ##");
+	                ex3.printStackTrace();
+	            }
 	        }
-	    }
-	    if (connD != null){
-	        try{
-	            connD.rollback();
-	            ConnectionResource.release(connD);
-	        }catch(Exception ex3){
-	            ecamsLogger.error("## Cmr0250.progCncl_sel() connection release exception ##");
-	            ex3.printStackTrace();
-	        }
-	    }
-	    ecamsLogger.error("## Cmr0250.progCncl_sel() Exception START ##");
-	    ecamsLogger.error("## Error DESC : ", exception);
-	    ecamsLogger.error("## Cmr0250.progCncl_sel() Exception END ##");
-	    throw exception;
-	}finally{
-	    if (strQuery != null) strQuery = null;
-	    if (pstmt != null)  try{pstmt.close();}catch (Exception ex2){ex2.printStackTrace();}
-	    if (pstmt2 != null)  try{pstmt2.close();}catch (Exception ex2){ex2.printStackTrace();}
-	    if (rs != null)     try{rs.close();}catch (Exception ex){ex.printStackTrace();}
-	    if (conn != null){
-	        try{
-	            ConnectionResource.release(conn);
-	        }catch(Exception ex3){
-	            ecamsLogger.error("## Cmr0250.progCncl_sel() connection release exception ##");
-	            ex3.printStackTrace();
-	        }
-	    }
-	    if (connD != null){
-	        try{
-	            ConnectionResource.release(connD);
-	        }catch(Exception ex3){
-	            ecamsLogger.error("## Cmr0250.progCncl_sel() connection release exception ##");
-	            ex3.printStackTrace();
-	        }
+	        ecamsLogger.error("## Cmr0250.progCncl_sel() Exception START ##");
+	        ecamsLogger.error("## Error DESC : ", exception);
+	        ecamsLogger.error("## Cmr0250.progCncl_sel() Exception END ##");
+	        throw exception;
+	    } finally {
+			if (strQuery != null) strQuery = null;
+			if (pstmt != null)  try{pstmt.close();}catch (Exception ex2){ex2.printStackTrace();}
+			if (pstmt2 != null)  try{pstmt2.close();}catch (Exception ex2){ex2.printStackTrace();}
+			if (rs != null)     try{rs.close();}catch (Exception ex){ex.printStackTrace();}
+			if (conn != null){
+				try{
+					ConnectionResource.release(conn);
+				}catch(Exception ex3){
+					ecamsLogger.error("## Cmr0250.progCncl_sel() connection release exception ##");
+					ex3.printStackTrace();
+				}
+			}
+			if (connD != null){
+				try{
+					ConnectionResource.release(connD);
+				}catch(Exception ex3){
+					ecamsLogger.error("## Cmr0250.progCncl_sel() connection release exception ##");
+					ex3.printStackTrace();
+				}
+			}
 	    }
 	}
+
 	
 	public String progCncl_sel_20260112(String AcptNo,ArrayList<HashMap<String,String>> fileList,String PrcSys) throws SQLException, Exception {
 		Connection        conn        = null;
