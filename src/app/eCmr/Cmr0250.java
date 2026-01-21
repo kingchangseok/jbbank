@@ -3100,7 +3100,6 @@ public class Cmr0250{
 	        int     cmdrtn;
 	        String itemId;
 	        String rsrcName;
-	        String baseNm;
 	        
 	        SystemPath systemPath = new SystemPath();
 	        binpath = systemPath.getTmpDir("14");
@@ -3142,7 +3141,7 @@ public class Cmr0250{
 	                            + ", BaseItem:" + fileList.get(i).get("cr_baseitem"));
 	
 	            strQuery.setLength(0);
-	            strQuery.append("select a.cr_itemid from cmr1010 a,cmr0020 b  					\n");
+	            strQuery.append("select a.cr_itemid, a.cr_rsrcname from cmr1010 a,cmr0020 b  					\n");
 	            strQuery.append(" where a.cr_acptno = ?                          				\n");
 	            strQuery.append(" and a.cr_baseitem in (select a.cr_itemid 						\n");
 	            strQuery.append("                         from cmr1010 a,cmr0020 b				\n");
@@ -3169,6 +3168,10 @@ public class Cmr0250{
 	            int relatedFileCount = 0;  // 관련 파일 카운트
 	            while (rs.next()) {
 	                relatedFileCount++;
+	                String relatedItemId = rs.getString("cr_itemid");
+	                String relatedRsrcName = rs.getString("cr_rsrcname");
+
+	                // 관련 파일 업데이트
 	                strQuery.setLength(0);
 	                strQuery.append("update cmr1010 set cr_status='3',cr_prcdate=SYSDATE,\n");
 	                strQuery.append("                   cr_cnclstep=?                    \n");
@@ -3178,88 +3181,74 @@ public class Cmr0250{
 	                pstmt3 = new LoggableStatement(conn,strQuery.toString());
 	                pstmt3.setString(1,PrcSys);
 	                pstmt3.setString(2,AcptNo);
-	                pstmt3.setString(3,rs.getString("cr_itemid"));
+	                pstmt3.setString(3,relatedItemId);
 	                ecamsLogger.error(((LoggableStatement)pstmt3).getQueryString());
 	                pstmt3.executeUpdate();
 	                pstmt3.close();
+
+	                // 관련 파일이 .java인 경우 .class도 함께 업데이트
+	                if (relatedRsrcName != null && relatedRsrcName.toLowerCase().endsWith(".java")) {
+	                    int dot = relatedRsrcName.lastIndexOf(".");
+	                    String relatedBaseNm = (dot > 0 ? relatedRsrcName.substring(0, dot) : relatedRsrcName);
+
+	                    ecamsLogger.error("[RELATED_JAVA_CLASS_SEARCH] RelatedFile:" + relatedRsrcName
+	                                    + ", BaseNm:" + relatedBaseNm);
+
+	                    strQuery.setLength(0);
+	                    strQuery.append("select a.cr_itemid, a.cr_rsrcname                           \n");
+	                    strQuery.append("  from cmr1010 a                                            \n");
+	                    strQuery.append(" where a.cr_acptno = ?                                      \n");
+	                    strQuery.append("   and a.cr_status <> '3'                                   \n");
+	                    strQuery.append("   and nvl(a.cr_baseitem,'') = ''                           \n");
+	                    strQuery.append("   and lower(a.cr_rsrcname) like '%.class'                  \n");
+	                    strQuery.append("   and ( lower(a.cr_rsrcname) = lower(?)                    \n");
+	                    strQuery.append("      or lower(a.cr_rsrcname) like lower(?) )               \n");
+
+	                    PreparedStatement pstmt4 = new LoggableStatement(conn, strQuery.toString());
+	                    pstmt4.setString(1, AcptNo);
+	                    pstmt4.setString(2, relatedBaseNm + ".class");
+	                    pstmt4.setString(3, relatedBaseNm + "$%.class");
+	                    ecamsLogger.error("[RELATED_JAVA->CLASS] " + ((LoggableStatement)pstmt4).getQueryString());
+
+	                    ResultSet rs3 = pstmt4.executeQuery();
+	                    int relatedClassCount = 0;
+	                    while (rs3.next()) {
+	                        relatedClassCount++;
+	                        String classItemId = rs3.getString("cr_itemid");
+	                        String classFileName = rs3.getString("cr_rsrcname");
+
+	                        ecamsLogger.error("[RELATED_CLASS_FOUND] ItemId:" + classItemId
+	                                        + ", FileName:" + classFileName);
+
+	                        strQuery.setLength(0);
+	                        strQuery.append("update cmr1010 set cr_status='3',cr_prcdate=SYSDATE,\n");
+	                        strQuery.append("                   cr_cnclstep=?                    \n");
+	                        strQuery.append(" where cr_acptno=? and cr_itemid=?                  \n");
+	                        strQuery.append("   and cr_status<>'3'                               \n");
+	                        PreparedStatement pstmt5 = new LoggableStatement(conn, strQuery.toString());
+	                        pstmt5.setString(1, PrcSys);
+	                        pstmt5.setString(2, AcptNo);
+	                        pstmt5.setString(3, classItemId);
+	                        ecamsLogger.error(((LoggableStatement)pstmt5).getQueryString());
+
+	                        int updateResult = pstmt5.executeUpdate();
+	                        pstmt5.close();
+
+	                        ecamsLogger.error("[RELATED_CLASS_UPDATED] ItemId:" + classItemId
+	                                        + ", UpdateResult:" + updateResult);
+	                    }
+	                    rs3.close();
+	                    pstmt4.close();
+
+	                    if (relatedClassCount > 0) {
+	                        ecamsLogger.error("[RELATED_CLASS_TOTAL] RelatedJava:" + relatedRsrcName
+	                                        + ", ClassCount:" + relatedClassCount);
+	                    }
+	                }
 	            }
 	            rs.close();
 	            pstmt.close();
 	            
-	            // 로그 3: 관련 파일 처리 결과
-	            ecamsLogger.error("[RELATED_FILES_UPDATED] Count:" + relatedFileCount);
-	            
-	            /* 20260112  신규 등록 케이스 보완 .class 보완 로직 시작          */
-	            if (rsrcName != null && rsrcName.toLowerCase().endsWith(".java")) {
-	                int dot = rsrcName.lastIndexOf(".");
-	                baseNm = (dot > 0 ? rsrcName.substring(0, dot) : rsrcName);
-	                
-	                // 로그 4: .class 검색 시작
-	                ecamsLogger.error("[CLASS_SEARCH_START] JavaFile:" + rsrcName 
-	                                + ", BaseNm:" + baseNm);
-	
-	                strQuery.setLength(0);
-	                strQuery.append("select a.cr_itemid, a.cr_rsrcname, a.cr_baseitem           \n");
-	                strQuery.append("  from cmr1010 a                                            \n");
-	                strQuery.append(" where a.cr_acptno = ?                                      \n");
-	                strQuery.append("   and a.cr_status <> '3'                                   \n");
-	                strQuery.append("   and nvl(a.cr_baseitem,'') = ''                           \n");
-	                strQuery.append("   and lower(a.cr_rsrcname) like '%.class'                  \n");
-	                strQuery.append("   and ( lower(a.cr_rsrcname) = lower(?)                    \n");
-	                strQuery.append("      or lower(a.cr_rsrcname) like lower(?) )               \n");
-	
-	                pstmt = new LoggableStatement(conn, strQuery.toString());
-	                pstmt.setString(1, AcptNo);
-	                pstmt.setString(2, baseNm + ".class");
-	                pstmt.setString(3, baseNm + "$%.class");
-	                ecamsLogger.error("[JAVA->CLASS Fallback] " + ((LoggableStatement)pstmt).getQueryString());
-	
-	                rs = pstmt.executeQuery();
-	                
-	                int classFileCount = 0;  // .class 파일 카운트
-	                while (rs.next()) {
-	                    classFileCount++;
-	                    String classItemId = rs.getString("cr_itemid");
-	                    String classFileName = rs.getString("cr_rsrcname");
-	                    String classBaseItem = rs.getString("cr_baseitem");
-	                    
-	                    // 로그 5: 발견된 .class 상세 정보
-	                    ecamsLogger.error("[CLASS_FOUND_" + classFileCount + "] "
-	                                    + "ItemId:" + classItemId 
-	                                    + ", FileName:" + classFileName
-	                                    + ", BaseItem:'" + classBaseItem + "'"
-	                                    + ", BaseItemLength:" + (classBaseItem != null ? classBaseItem.length() : "null"));
-	                    
-	                    strQuery.setLength(0);
-	                    strQuery.append("update cmr1010 set cr_status='3',cr_prcdate=SYSDATE,\n");
-	                    strQuery.append("                   cr_cnclstep=?                    \n");
-	                    strQuery.append(" where cr_acptno=? and cr_itemid=?                  \n");
-	                    strQuery.append("   and cr_status<>'3'                               \n");
-	                    pstmt3 = new LoggableStatement(conn, strQuery.toString());
-	                    pstmt3.setString(1, PrcSys);
-	                    pstmt3.setString(2, AcptNo);
-	                    pstmt3.setString(3, classItemId);
-	                    ecamsLogger.error(((LoggableStatement)pstmt3).getQueryString());
-	                    
-	                    int updateResult = pstmt3.executeUpdate();
-	                    pstmt3.close();
-	                    
-	                    // 로그 6: 업데이트 결과
-	                    ecamsLogger.error("[CLASS_UPDATED] ItemId:" + classItemId 
-	                                    + ", UpdateResult:" + updateResult);
-	                }
-	                rs.close();
-	                pstmt.close();
-	                
-	                // 로그 7: .class 검색 결과 요약
-	                if (classFileCount == 0) {
-	                    ecamsLogger.error("[CLASS_NOT_FOUND] No .class files found for " + baseNm);
-	                } else {
-	                    ecamsLogger.error("[CLASS_SEARCH_END] Total:" + classFileCount + " class files processed");
-	                }
-	            }
-	            /* 20260112  신규 등록 케이스 보완 .class 보완 로직 종료          */
-	
 	            strQuery.setLength(0);
 	            strQuery.append("update cmr1010 set cr_status='3',cr_prcdate=SYSDATE,\n");
 	            strQuery.append("                   cr_cnclstep=?                    \n");
@@ -3270,9 +3259,6 @@ public class Cmr0250{
 	            pstmt.setString(3,fileList.get(i).get("cr_itemid"));
 	            int mainUpdateResult = pstmt.executeUpdate();
 	            pstmt.close();
-	            
-	            // 로그 8: 메인 파일 업데이트 결과
-	            ecamsLogger.error("[MAIN_FILE_UPDATED] ItemId:" + itemId + ", Result:" + mainUpdateResult);
 	            
 	            strQuery.setLength(0);
 	            strQuery.append("update cmr1010 set cr_confno=''             \n");
@@ -3449,29 +3435,30 @@ public class Cmr0250{
 	        ecamsLogger.error("## Cmr0250.progCncl_sel() Exception END ##");
 	        throw exception;
 	    } finally {
-			if (strQuery != null) strQuery = null;
-			if (pstmt != null)  try{pstmt.close();}catch (Exception ex2){ex2.printStackTrace();}
-			if (pstmt2 != null)  try{pstmt2.close();}catch (Exception ex2){ex2.printStackTrace();}
-			if (rs != null)     try{rs.close();}catch (Exception ex){ex.printStackTrace();}
-			if (conn != null){
-				try{
-					ConnectionResource.release(conn);
-				}catch(Exception ex3){
-					ecamsLogger.error("## Cmr0250.progCncl_sel() connection release exception ##");
-					ex3.printStackTrace();
-				}
-			}
-			if (connD != null){
-				try{
-					ConnectionResource.release(connD);
-				}catch(Exception ex3){
-					ecamsLogger.error("## Cmr0250.progCncl_sel() connection release exception ##");
-					ex3.printStackTrace();
-				}
-			}
+	        if (strQuery != null) strQuery = null;
+	        if (pstmt != null)  try{pstmt.close();}catch (Exception ex2){ex2.printStackTrace();}
+	        if (pstmt2 != null)  try{pstmt2.close();}catch (Exception ex2){ex2.printStackTrace();}
+	        if (pstmt3 != null)  try{pstmt3.close();}catch (Exception ex2){ex2.printStackTrace();}
+	        if (rs != null)     try{rs.close();}catch (Exception ex){ex.printStackTrace();}
+	        if (rs2 != null)    try{rs2.close();}catch (Exception ex){ex.printStackTrace();}
+	        if (conn != null){
+	            try{
+	                ConnectionResource.release(conn);
+	            }catch(Exception ex3){
+	                ecamsLogger.error("## Cmr0250.progCncl_sel() connection release exception ##");
+	                ex3.printStackTrace();
+	            }
+	        }
+	        if (connD != null){
+	            try{
+	                ConnectionResource.release(connD);
+	            }catch(Exception ex3){
+	                ecamsLogger.error("## Cmr0250.progCncl_sel() connection release exception ##");
+	                ex3.printStackTrace();
+	            }
+	        }
 	    }
 	}
-
 	
 	public String progCncl_sel_20260112(String AcptNo,ArrayList<HashMap<String,String>> fileList,String PrcSys) throws SQLException, Exception {
 		Connection        conn        = null;
