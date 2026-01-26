@@ -3185,69 +3185,113 @@ public class Cmr0250{
 	                ecamsLogger.error(((LoggableStatement)pstmt3).getQueryString());
 	                pstmt3.executeUpdate();
 	                pstmt3.close();
-
-	                // 관련 파일이 .java인 경우 .class도 함께 업데이트
-	                if (relatedRsrcName != null && relatedRsrcName.toLowerCase().endsWith(".java")) {
-	                    int dot = relatedRsrcName.lastIndexOf(".");
-	                    String relatedBaseNm = (dot > 0 ? relatedRsrcName.substring(0, dot) : relatedRsrcName);
-
-	                    ecamsLogger.error("[RELATED_JAVA_CLASS_SEARCH] RelatedFile:" + relatedRsrcName
-	                                    + ", BaseNm:" + relatedBaseNm);
-
+	            }
+	            rs.close();
+	            pstmt.close();
+	            
+	            // ========== .efx 파일 처리 로직 추가 (RSA 모델) ==========
+	            // .efx 파일인 경우, cr_baseitem으로 연관된 .java 파일을 찾고
+	            // 그 Java 파일명으로 .class 파일들을 검색하여 반송
+	            if (rsrcName != null && rsrcName.toLowerCase().endsWith(".efx")) {
+	                ecamsLogger.error("[EFX_REFUND_START] EfxFile:" + rsrcName + ", ItemId:" + itemId);
+	                
+	                // 1. 연관된 .java 파일 검색
+	                strQuery.setLength(0);
+	                strQuery.append("select cr_itemid, cr_rsrcname                        \n");
+	                strQuery.append("  from cmr1010                                        \n");
+	                strQuery.append(" where cr_acptno = ?                                  \n");
+	                strQuery.append("   and cr_baseitem = ?                                \n");
+	                strQuery.append("   and lower(cr_rsrcname) like '%.java'               \n");
+	                strQuery.append("   and cr_status <> '3'                               \n");
+	                
+	                PreparedStatement pstmtEfx = new LoggableStatement(conn, strQuery.toString());
+	                pstmtEfx.setString(1, AcptNo);
+	                pstmtEfx.setString(2, itemId);
+	                ecamsLogger.error("[EFX_JAVA_SEARCH] " + ((LoggableStatement)pstmtEfx).getQueryString());
+	                
+	                ResultSet rsEfx = pstmtEfx.executeQuery();
+	                int efxJavaCount = 0;
+	                
+	                while (rsEfx.next()) {
+	                    efxJavaCount++;
+	                    String javaItemId = rsEfx.getString("cr_itemid");
+	                    String javaFileName = rsEfx.getString("cr_rsrcname");
+	                    
+	                    ecamsLogger.error("[EFX_JAVA_FOUND] JavaFile:" + javaFileName + ", ItemId:" + javaItemId);
+	                    
+	                    // 2. Java 파일명에서 .class 파일 검색
+	                    int dot = javaFileName.lastIndexOf(".");
+	                    String javaBaseNm = (dot > 0 ? javaFileName.substring(0, dot) : javaFileName);
+	                    
+	                    ecamsLogger.error("[EFX_CLASS_SEARCH_START] JavaBaseNm:" + javaBaseNm);
+	                    
 	                    strQuery.setLength(0);
-	                    strQuery.append("select a.cr_itemid, a.cr_rsrcname                           \n");
-	                    strQuery.append("  from cmr1010 a                                            \n");
-	                    strQuery.append(" where a.cr_acptno = ?                                      \n");
-	                    strQuery.append("   and a.cr_status <> '3'                                   \n");
-	                    strQuery.append("   and nvl(a.cr_baseitem,'') = ''                           \n");
-	                    strQuery.append("   and lower(a.cr_rsrcname) like '%.class'                  \n");
-	                    strQuery.append("   and ( lower(a.cr_rsrcname) = lower(?)                    \n");
-	                    strQuery.append("      or lower(a.cr_rsrcname) like lower(?) )               \n");
-
-	                    PreparedStatement pstmt4 = new LoggableStatement(conn, strQuery.toString());
-	                    pstmt4.setString(1, AcptNo);
-	                    pstmt4.setString(2, relatedBaseNm + ".class");
-	                    pstmt4.setString(3, relatedBaseNm + "$%.class");
-	                    ecamsLogger.error("[RELATED_JAVA->CLASS] " + ((LoggableStatement)pstmt4).getQueryString());
-
-	                    ResultSet rs3 = pstmt4.executeQuery();
-	                    int relatedClassCount = 0;
-	                    while (rs3.next()) {
-	                        relatedClassCount++;
-	                        String classItemId = rs3.getString("cr_itemid");
-	                        String classFileName = rs3.getString("cr_rsrcname");
-
-	                        ecamsLogger.error("[RELATED_CLASS_FOUND] ItemId:" + classItemId
-	                                        + ", FileName:" + classFileName);
-
+	                    strQuery.append("select cr_itemid, cr_rsrcname                           \n");
+	                    strQuery.append("  from cmr1010                                            \n");
+	                    strQuery.append(" where cr_acptno = ?                                      \n");
+	                    strQuery.append("   and cr_status <> '3'                                   \n");
+	                    strQuery.append("   and nvl(cr_baseitem,'') = ''                           \n");
+	                    strQuery.append("   and lower(cr_rsrcname) like '%.class'                  \n");
+	                    strQuery.append("   and ( lower(cr_rsrcname) = lower(?)                    \n");
+	                    strQuery.append("      or lower(cr_rsrcname) like lower(?) )               \n");
+	                    
+	                    PreparedStatement pstmtClass = new LoggableStatement(conn, strQuery.toString());
+	                    pstmtClass.setString(1, AcptNo);
+	                    pstmtClass.setString(2, javaBaseNm + ".class");
+	                    pstmtClass.setString(3, javaBaseNm + "$%.class");
+	                    ecamsLogger.error("[EFX_CLASS_SEARCH] " + ((LoggableStatement)pstmtClass).getQueryString());
+	                    
+	                    ResultSet rsClass = pstmtClass.executeQuery();
+	                    int classCount = 0;
+	                    
+	                    while (rsClass.next()) {
+	                        classCount++;
+	                        String classItemId = rsClass.getString("cr_itemid");
+	                        String classFileName = rsClass.getString("cr_rsrcname");
+	                        
+	                        ecamsLogger.error("[EFX_CLASS_FOUND] ClassFile:" + classFileName + ", ItemId:" + classItemId);
+	                        
+	                        // .class 파일 반송 처리
 	                        strQuery.setLength(0);
 	                        strQuery.append("update cmr1010 set cr_status='3',cr_prcdate=SYSDATE,\n");
 	                        strQuery.append("                   cr_cnclstep=?                    \n");
 	                        strQuery.append(" where cr_acptno=? and cr_itemid=?                  \n");
 	                        strQuery.append("   and cr_status<>'3'                               \n");
-	                        PreparedStatement pstmt5 = new LoggableStatement(conn, strQuery.toString());
-	                        pstmt5.setString(1, PrcSys);
-	                        pstmt5.setString(2, AcptNo);
-	                        pstmt5.setString(3, classItemId);
-	                        ecamsLogger.error(((LoggableStatement)pstmt5).getQueryString());
-
-	                        int updateResult = pstmt5.executeUpdate();
-	                        pstmt5.close();
-
-	                        ecamsLogger.error("[RELATED_CLASS_UPDATED] ItemId:" + classItemId
+	                        
+	                        PreparedStatement pstmtUpdate = new LoggableStatement(conn, strQuery.toString());
+	                        pstmtUpdate.setString(1, PrcSys);
+	                        pstmtUpdate.setString(2, AcptNo);
+	                        pstmtUpdate.setString(3, classItemId);
+	                        ecamsLogger.error("[EFX_CLASS_UPDATE] " + ((LoggableStatement)pstmtUpdate).getQueryString());
+	                        
+	                        int updateResult = pstmtUpdate.executeUpdate();
+	                        pstmtUpdate.close();
+	                        
+	                        ecamsLogger.error("[EFX_CLASS_UPDATED] ItemId:" + classItemId 
 	                                        + ", UpdateResult:" + updateResult);
 	                    }
-	                    rs3.close();
-	                    pstmt4.close();
-
-	                    if (relatedClassCount > 0) {
-	                        ecamsLogger.error("[RELATED_CLASS_TOTAL] RelatedJava:" + relatedRsrcName
-	                                        + ", ClassCount:" + relatedClassCount);
+	                    
+	                    rsClass.close();
+	                    pstmtClass.close();
+	                    
+	                    if (classCount > 0) {
+	                        ecamsLogger.error("[EFX_CLASS_TOTAL] JavaFile:" + javaFileName 
+	                                        + ", ClassCount:" + classCount);
 	                    }
 	                }
+	                
+	                rsEfx.close();
+	                pstmtEfx.close();
+	                
+	                if (efxJavaCount > 0) {
+	                    ecamsLogger.error("[EFX_REFUND_COMPLETE] EfxFile:" + rsrcName 
+	                                    + ", JavaCount:" + efxJavaCount);
+	                } else {
+	                    ecamsLogger.error("[EFX_REFUND_NO_JAVA] EfxFile:" + rsrcName 
+	                                    + " - No related Java files found");
+	                }
 	            }
-	            rs.close();
-	            pstmt.close();
+	            // ========== .efx 파일 처리 로직 종료 ==========
 	            
 	            strQuery.setLength(0);
 	            strQuery.append("update cmr1010 set cr_status='3',cr_prcdate=SYSDATE,\n");
